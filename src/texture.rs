@@ -1,4 +1,4 @@
-use image::GenericImageView;
+use image::{GenericImage, GenericImageView, ImageBuffer, ImageFormat};
 use anyhow::*;
 
 pub struct Texture {
@@ -9,6 +9,7 @@ pub struct Texture {
 }
 
 impl Texture {
+
     pub fn from_bytes(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

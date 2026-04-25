@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::texture;
 use crate::{vertex::{INDICES, VERTICES, Vertex}};
 
+use image::{DynamicImage, ImageFormat};
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler, event::*, event_loop::{self, ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
@@ -12,6 +13,8 @@ use winit::{
 use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
+
+const RESOLUTION: (u32, u32) = (320, 240);
 
 
 // This will store the state of our game
@@ -29,6 +32,7 @@ pub struct State {
     window: Arc<Window>,
 	diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
+    test: u32, 
 }
 
 impl State {
@@ -90,8 +94,13 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
-        let diffuse_bytes = include_bytes!("happy-tree.png");
-        let diffuse_texture = texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+        const SIZE: (u32, u32) = (320, 240);
+        let mut pixels: Vec<u8> = vec![0u8; (SIZE.0 * SIZE.1 * 4) as usize]; 
+        pixels[0] = 255;
+
+        let img = DynamicImage::ImageRgba8(image::ImageBuffer::from_raw(SIZE.0, SIZE.1, pixels).unwrap());
+
+        let diffuse_texture = texture::Texture::from_image(&device, &queue, &img, Some("screen_quad")).unwrap();
 		let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -223,6 +232,7 @@ impl State {
             window,
             diffuse_bind_group,
             diffuse_texture,
+            test: 0,
         })
     }
 
@@ -248,6 +258,29 @@ impl State {
     
     pub fn render(&mut self) -> anyhow::Result<()> {
         self.window.request_redraw();
+        
+        // Update pixel data
+        let mut pixels: Vec<u8> = vec![0u8; (320 * 240 * 4) as usize];
+        pixels[self.test as usize] = 250; // Test
+        self.test += 1;
+                                 // s
+
+        // Update texture with new pixel data 
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.diffuse_texture.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(320 * 4),
+                rows_per_image: Some(240),
+            },
+            wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
+        );
 
         if !self.is_surface_configured {
             return Ok(());
