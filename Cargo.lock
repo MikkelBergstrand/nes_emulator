@@ -1017,6 +1017,7 @@ name = "nes_emulator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bitflags 2.11.1",
  "bytemuck",
  "console_error_panic_hook",
  "console_log",

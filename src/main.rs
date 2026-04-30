@@ -1,6 +1,11 @@
 mod vertex;
 mod texture;
 mod app;
+mod opcodes;
+mod memory;
+mod cpu;
+mod instruction;
+mod nes;
 
 use app::run;
 
