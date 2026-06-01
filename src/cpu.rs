@@ -39,6 +39,7 @@ impl CPU {
     }
 
     pub fn flag_as_u8(&self, status: CPUFlags) -> u8 { self.flags.contains(status) as u8 }
+    pub fn get_flag(&self, status: CPUFlags) -> bool { self.flags.contains(status) }
 
     pub fn set_flag(&mut self, status: CPUFlags, cond: bool) {
         self.flags.set(status, cond);

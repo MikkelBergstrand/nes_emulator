@@ -15,11 +15,24 @@ pub enum AddressingMode {
     AbsoluteY,
     IndirectX,
     IndirectY,
+    Accumulator,
+    Relative
 }
 
 impl AddressingMode {
-    pub fn resolve_value_from_addressmode(mode: AddressingMode, arg: Option<u16>, cpu: &CPU, memory: &mut Memory) -> u8 {
+    pub fn resolve_ref_from_addressmode<'a>(mode: AddressingMode, arg: u16, cpu: &'a mut CPU, memory: &'a mut Memory) -> &'a mut u8 {
         match mode {
+            AddressingMode::Accumulator => &mut cpu.acc,
+            _ => {
+                let address = AddressingMode::to_address(mode, arg, cpu, memory);
+                &mut memory[address.expect("Invalid address mode")]
+            }
+        }
+    }
+
+    pub fn resolve_value_from_addressmode(mode: AddressingMode, arg: Option<u16>, cpu: &CPU, memory: &Memory) -> u8 {
+        match mode {
+            AddressingMode::Accumulator => cpu.acc,
             AddressingMode::Immediate => { arg.expect("Immediate address mode requires an argument") as u8 },
             _ => {
                 let arg = arg.expect("Address mode requires an argument");
@@ -30,7 +43,7 @@ impl AddressingMode {
         }
     }
 
-    fn to_address(mode: AddressingMode, address: u16, cpu: &CPU, memory: &mut Memory) -> Option<u16> {
+    pub fn to_address(mode: AddressingMode, address: u16, cpu: &CPU, memory: &Memory) -> Option<u16> {
         let address_u8 = address as u8;
         match mode {
             AddressingMode::ZeroPage => { return Some(address) },
@@ -107,6 +120,26 @@ impl InstructionData {
         op!(data, 0x39, AbsoluteY, AND, 3, 4);
         op!(data, 0x21, IndirectX, AND, 2, 6);
         op!(data, 0x31, IndirectY, AND, 2, 5);
+
+        // ASL
+        op!(data, 0x0A, Accumulator, ASL, 1, 2);
+        op!(data, 0x06, ZeroPage,    ASL, 2, 5);
+        op!(data, 0x16, ZeroPageX,   ASL, 2, 6);
+        op!(data, 0x0E, Absolute,    ASL, 3, 6);
+        op!(data, 0x1E, AbsoluteX,   ASL, 3, 7);
+
+        // BCC
+        op!(data, 0x90, Relative, BCC, 2, 2);
+
+        //BIT
+        op!(data, 0x24, ZeroPage, BIT, 2, 3);
+        op!(data, 0x2C, Absolute, BIT, 3, 4);
+
+        //BMI
+        op!(data, 0x30, Relative, BIT, 2, 2);
+
+        //BNE
+        op!(data, 0xD0, Relative, BNE, 2, 2);
 
         return data;
     }
