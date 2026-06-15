@@ -4,19 +4,22 @@ use std::fmt;
 #[derive(Copy, Clone)]
 pub enum Instruction {
     ERR,
-    ADC,
-    AND,
+    ADC, SBC,
+    AND, ORA, EOR, BIT,
     ASL, // Arithmetic Shift Left
     BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS,
     CLC, CLD, CLI, CLV, 
     SEC, SEI, SED,
-    BIT,
     CMP, CPX, CPY,
     DEC, DEX, DEY,
     INC, INX, INY,
     LSR,
+    JMP, JSR,
     NOP,
     ROL, ROR,
+    PHA, PHP, PLA, PLP, TSX, TXS,
+    TAX, TXA, TAY, TYA,
+    LDA, STA, LDX, STX, LDY, STY
 }
 
 impl fmt::Display for Instruction {
@@ -24,7 +27,10 @@ impl fmt::Display for Instruction {
         let s = match self {
             Instruction::ERR => "???",
             Instruction::ADC => "adc",
+            Instruction::SBC => "sbc",
             Instruction::AND => "and",
+            Instruction::ORA => "ora",
+            Instruction::EOR => "eor",
             Instruction::ASL => "asl",
             Instruction::BCC => "bcc",
             Instruction::BCS => "bcs",
@@ -55,6 +61,24 @@ impl fmt::Display for Instruction {
             Instruction::SEC => "sec",
             Instruction::SED => "sed",
             Instruction::SEI => "sei",
+            Instruction::PHA => "pha",
+            Instruction::PHP => "php",
+            Instruction::PLA => "pla",
+            Instruction::PLP => "plp",
+            Instruction::TSX => "tsx",
+            Instruction::TXS => "txs",
+            Instruction::TAX => "tax",
+            Instruction::TXA => "txa",
+            Instruction::TAY => "tay",
+            Instruction::TYA => "tya",
+            Instruction::LDA => "lda",
+            Instruction::LDX => "ldx",
+            Instruction::LDY => "ldy",
+            Instruction::STA => "sta",
+            Instruction::STX => "stx",
+            Instruction::STY => "sty",
+            Instruction::JMP => "jmp",
+            Instruction::JSR => "jsr",
         };
         f.write_str(s)
     }

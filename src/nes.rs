@@ -1,12 +1,10 @@
 use core::panic;
 
-use bytemuck::offset_of;
-use wgpu::AddressMode;
-
+use crate::addressing::{self, AddressingMode};
 use crate::cpu::{CPU, CPUFlags}; 
-use crate::instruction::{self, Instruction};
+use crate::instruction::{Instruction};
 use crate::memory::Memory;
-use crate::opcodes::{self, AddressingMode, InstructionData};
+use crate::opcodes::{self, InstructionData};
 
 pub struct NES {
     cpu: CPU,
@@ -22,7 +20,6 @@ impl NES {
             instruction_data: opcodes::InstructionData::make_instruction_table(),
         }
     } 
-
 
     fn branch_if(&mut self, condition: bool, addr: Option<u16>) {
         if condition {
@@ -42,9 +39,14 @@ impl NES {
         let value = AddressingMode::resolve_value_from_addressmode(mode, addr, &self.cpu, &self.memory);
         let (result, carry) = op(value, self.cpu.get_flag(CPUFlags::CARRY));
         self.cpu.set_flag(CPUFlags::CARRY, carry);
-        self.cpu.set_flag(CPUFlags::ZERO, result == 0);
-        self.cpu.set_flag(CPUFlags::NEGATIVE, (result & 0x80) != 0);
+        self.cpu.set_zn(result);
         *AddressingMode::resolve_ref_from_addressmode(mode, addr.unwrap(), &mut self.cpu, &mut self.memory) = result;
+    }
+
+    // Push result onto the stack. The most common way of doing so, used by e.g. PHA
+    fn stack_push(&mut self, value: u8) {
+        self.memory[0x100 + self.cpu.s as u16] = value;
+        self.cpu.s = self.cpu.s.wrapping_sub(1);
     }
 
     pub fn tick(&mut self) {
@@ -62,7 +64,7 @@ impl NES {
         // execute instruction...
         match instruction_data.instruction {
             Instruction::ADC => {
-                let memory = AddressingMode::resolve_value_from_addressmode(instruction_data.address_mode, addr, &mut self.cpu, &mut self.memory);
+                let memory = AddressingMode::resolve_value_from_addressmode(addr_mode, addr, &mut self.cpu, &mut self.memory);
 
                 // A = A + memory + C
                 // Detect overflow to set the carry bit. Bit hacky, but merge two overflowing_add
@@ -72,19 +74,32 @@ impl NES {
                 let wrapped = wrapped_a | wrapped_b;
 
                 self.cpu.set_flag(CPUFlags::CARRY, wrapped);
-                self.cpu.set_flag(CPUFlags::ZERO, result == 0);
                 self.cpu.set_flag(CPUFlags::OVERFLOW, ((result ^ self.cpu.acc) & (result ^ memory) & 0x80) != 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (result & 0x80) != 0);
+                self.cpu.set_zn(result);
 
                 self.cpu.acc = result;
                 
+            }
+            Instruction::SBC => {
+                // A = A - memory - ~C, or A = A + ~memory + C
+                let memory = AddressingMode::resolve_value_from_addressmode(addr_mode, addr, &mut self.cpu, &mut self.memory);
+
+                // First, treat as u16 to detect overflow
+                let result: u16 = self.cpu.acc as u16 + (!memory as u16) + (self.cpu.flag_as_u8(CPUFlags::CARRY) as u16);
+                self.cpu.set_flag(CPUFlags::CARRY, result > 0xFF);
+                // Then, cap to u8 
+                let result = result as u8;
+                self.cpu.set_flag(CPUFlags::OVERFLOW, ((result ^ self.cpu.acc) & (result ^ !memory) & 0x80) != 0);
+                self.cpu.set_zn(result);
+
+                self.cpu.acc = result;
+
             }
             Instruction::AND => {
                 let memory = AddressingMode::resolve_value_from_addressmode(instruction_data.address_mode, addr, &mut self.cpu, &mut self.memory);
 
                 self.cpu.acc = self.cpu.acc & memory;
-                self.cpu.set_flag(CPUFlags::ZERO, self.cpu.acc == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (self.cpu.acc & 0x80) != 0);
+                self.cpu.set_zn(self.cpu.acc);
             }
             Instruction::ASL => self.shift_rmw(addr_mode, addr, |v, _| (v << 1, (v & 0x80) != 0)),
             Instruction::LSR => self.shift_rmw(addr_mode, addr, |v, _| (v >> 1, (v & 0x01) != 0)),
@@ -94,9 +109,8 @@ impl NES {
             Instruction::BEQ => { self.branch_if(self.cpu.get_flag(CPUFlags::ZERO), addr); },
             Instruction::BIT => {
                 let value = AddressingMode::resolve_value_from_addressmode(addr_mode, addr, &mut self.cpu, &mut self.memory);
-                self.cpu.set_flag(CPUFlags::ZERO, value == 0);
                 self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (value & 0x80) != 0);
+                self.cpu.set_zn(value);
             }
             Instruction::BMI => { self.branch_if(self.cpu.get_flag(CPUFlags::NEGATIVE), addr); },
             Instruction::BNE => { self.branch_if(!self.cpu.get_flag(CPUFlags::ZERO), addr); },
@@ -117,40 +131,129 @@ impl NES {
                 let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
                 let result = self.memory[addr].wrapping_sub(1);
                 self.memory[addr] = result;
-
-                self.cpu.set_flag(CPUFlags::ZERO, result == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (result & 0x80) == 0);
+                self.cpu.set_zn(result);
             }
             Instruction::DEX => {
                 self.cpu.x = self.cpu.x.wrapping_sub(1);
-                self.cpu.set_flag(CPUFlags::ZERO, self.cpu.x == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (self.cpu.x & 0x80) == 0);
+                self.cpu.set_zn(self.cpu.x);
             }
             Instruction::DEY => {
                 self.cpu.y = self.cpu.y.wrapping_sub(1);
-                self.cpu.set_flag(CPUFlags::ZERO, self.cpu.y == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (self.cpu.y & 0x80) == 0);
+                self.cpu.set_zn(self.cpu.y);
             }
             Instruction::INC => { 
                 let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
                 let result = self.memory[addr].wrapping_add(1);
                 self.memory[addr] = result;
 
-                self.cpu.set_flag(CPUFlags::ZERO, result == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (result & 0x80) == 0);
+                self.cpu.set_zn(result);
             }
             Instruction::INX => {
                 self.cpu.x = self.cpu.x.wrapping_add(1);
-                self.cpu.set_flag(CPUFlags::ZERO, self.cpu.x == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (self.cpu.x & 0x80) == 0);
+                self.cpu.set_zn(self.cpu.x);
             }
             Instruction::INY => {
                 self.cpu.y = self.cpu.y.wrapping_add(1);
-                self.cpu.set_flag(CPUFlags::ZERO, self.cpu.y == 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE, (self.cpu.y & 0x80) == 0);
+                self.cpu.set_zn(self.cpu.y);
+            }
+            Instruction::PLA => {
+                self.cpu.s = self.cpu.s.wrapping_add(1);
+                self.cpu.acc = self.memory[0x100 + self.cpu.s as u16];
+                self.cpu.set_zn(self.cpu.acc);
+            }
+            Instruction::PHA => {
+                self.stack_push(self.cpu.acc);
+            }
+            Instruction::TSX => {
+                self.cpu.x = self.cpu.s;
+                self.cpu.set_zn(self.cpu.x);
+            }
+            Instruction::TXS => {
+                self.cpu.s = self.cpu.x
+            }
+            Instruction::TAX => {
+                self.cpu.x = self.cpu.acc;
+                self.cpu.set_zn(self.cpu.x);
+            }
+            Instruction::TXA => {
+                self.cpu.acc = self.cpu.x;
+                self.cpu.set_zn(self.cpu.x);
+            }
+            Instruction::TAY => {
+                self.cpu.y = self.cpu.acc;
+                self.cpu.set_zn(self.cpu.y);
+            }
+            Instruction::TYA => {
+                self.cpu.acc = self.cpu.y;
+                self.cpu.set_zn(self.cpu.y);
+            }
+            Instruction::PHP => {
+                self.memory[0x100 + (self.cpu.s as u16)] = self.cpu.flags.bits() & (1 << 4) & (1 << 5);
+                self.cpu.s = self.cpu.s.wrapping_sub(1);
+            }
+            Instruction::PLP => {
+                self.cpu.s = self.cpu.s.wrapping_add(1);
+                let bits = self.memory[0x100 + (self.cpu.s as u16)];
+                self.cpu.set_flag(CPUFlags::CARRY,      bits & (1 << 0) != 0);
+                self.cpu.set_flag(CPUFlags::ZERO,       bits & (1 << 1) != 0);
+                self.cpu.set_flag(CPUFlags::IRQ,        bits & (1 << 2) != 0);
+                self.cpu.set_flag(CPUFlags::DECIMAL,    bits & (1 << 3) != 0);
+                self.cpu.set_flag(CPUFlags::OVERFLOW,   bits & (1 << 6) != 0);
+                self.cpu.set_flag(CPUFlags::NEGATIVE,   bits & (1 << 7) != 0);
+            }
+            Instruction::LDA => { 
+                let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                self.cpu.acc = self.memory[addr]; self.cpu.set_zn(self.cpu.acc); 
+            }
+            Instruction::LDX => { 
+                let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                self.cpu.x = self.memory[addr]; self.cpu.set_zn(self.cpu.x); 
+            }
+            Instruction::LDY => { 
+                let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                self.cpu.y = self.memory[addr]; self.cpu.set_zn(self.cpu.y); 
+            }
+            Instruction::STA => {
+                let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                self.memory[addr] = self.cpu.acc;
+            }
+            Instruction::STX => {
+                let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                self.memory[addr] = self.cpu.x;
+            }
+            Instruction::STY => {
+                let addr = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                self.memory[addr] = self.cpu.y;
             }
             Instruction::NOP => {
-                 
+            }
+            Instruction::JMP => {
+                // Begin to construct 16-bit value to be stored in PC.
+                // Denote the two component bytes as highbyte and lowbyte
+                let highbyte_address = AddressingMode::to_address(addr_mode, addr.unwrap(), &self.cpu, &self.memory).unwrap();
+                let high_byte = self.memory[highbyte_address]; 
+
+                // Address NES CPU bug. When addressing a 16-bit value (spanning two byte memory
+                // addresses) that crosses a page, the low byte is read from the wrong address.
+                // Specifically, the low byte is read from the 0th address of the first page.
+                // For example, reading from high byte 0x03FF will read form low byte 0x0300, not
+                // 0x0400.
+                let lowbyte_address = 
+                    if addr_mode == AddressingMode::Indirect && addressing::address_crosses_page(highbyte_address) {
+                        highbyte_address & 0xFF00
+                    }  else {
+                        highbyte_address.wrapping_add(1)
+                    };
+
+                let low_byte = self.memory[lowbyte_address];
+                self.cpu.pc = ((high_byte as u16) << 8) & (low_byte as u16);
+            }
+            Instruction::JSP => {
+                self.stack_push(((self.cpu.pc + 2) >> 8) as u8); // Push high byte
+                self.stack_push((self.cpu.pc + 2) as u8); // Push low byte
+
+                let addr = addr.unwrap();
+                self.cpu.pc = ((self.memory[addr] as u16) << 8) & (self.memory[addr.wrapping_add(1)] as u16);
             }
             _ => panic!("unimplemented instruction {}", instruction_data.instruction)
         }

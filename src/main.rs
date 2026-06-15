@@ -1,6 +1,7 @@
 mod vertex;
 mod texture;
 mod app;
+mod addressing;
 mod opcodes;
 mod memory;
 mod cpu;
