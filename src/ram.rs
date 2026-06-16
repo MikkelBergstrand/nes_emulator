@@ -1,22 +1,18 @@
 use std::ops::{Index, IndexMut};
 
-pub struct Memory {
-    data: [u8; 65536],
+pub struct RAM {
+    data: [u8; 2048] 
 }
 
-impl Memory {
-    pub fn new() -> Memory {
+impl RAM {
+    pub fn new() -> RAM {
         Self {
-            data: [0; 65536],
+            data: [0; 2048],
         }
     } 
-
-    pub fn write(&mut self, addr: u16, value: u8) {
-        self.data[addr as usize] = value;
-    }
 }
 
-impl Index<u16> for Memory {
+impl Index<u16> for RAM {
     type Output = u8;
     
     fn index(&self, index: u16) -> &Self::Output {
@@ -25,7 +21,7 @@ impl Index<u16> for Memory {
 
 }
 
-impl IndexMut<u16> for Memory {
+impl IndexMut<u16> for RAM {
     fn index_mut(&mut self, index: u16) -> &mut Self::Output {
         &mut self.data[index as usize]
     }

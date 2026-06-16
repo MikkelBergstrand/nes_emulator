@@ -3,8 +3,9 @@ mod texture;
 mod app;
 mod addressing;
 mod opcodes;
-mod memory;
+mod ram;
 mod cpu;
+mod ppu;
 mod instruction;
 mod nes;
 

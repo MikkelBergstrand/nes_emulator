@@ -1,29 +1,9 @@
-use core::panic;
-
-use crate::addressing::{self, AddressingMode};
-use crate::cpu::{CPU, CPUFlags}; 
-use crate::instruction::{Instruction};
-use crate::memory::Memory;
-use crate::opcodes::{self, InstructionData};
-
-pub struct NES {
-    cpu: CPU,
-    memory: Memory,
-    instruction_data: [InstructionData; 256],
-
-    cycles: usize,
-}
+use crate::addressing::AddressingMode;
+use crate::instruction::Instruction;
+use crate::cpu::{CPUFlags};
+use super::NES;
 
 impl NES {
-    pub fn new() -> Self {
-        Self {
-            cpu: CPU::new(),
-            memory: Memory::new(),
-            instruction_data: opcodes::InstructionData::make_instruction_table(),
-            cycles: 0,
-        }
-    } 
-    
     // Wrapper for branch instructions. 
     // Returns the extra cycles incurred by the instruction:
     // 1 extra if branch taken, and 1 extra if it crosses a page
@@ -40,7 +20,7 @@ impl NES {
     }
 
     fn compare_reg(&mut self, mode: AddressingMode, addr: Option<u16>, register: u8) {
-        let (value, page_crossed) = AddressingMode::resolve_value_from_addressmode(mode, addr, &mut self.cpu, &mut self.memory);
+        let (value, page_crossed) = self.resolve_value_from_addressmode(mode, addr);
         self.cpu.set_flag(CPUFlags::CARRY, register >= value);
         self.cpu.set_flag(CPUFlags::ZERO, register == value);
         self.cpu.set_flag(CPUFlags::NEGATIVE, (value & 0x80) != 0);
@@ -49,18 +29,25 @@ impl NES {
     }
 
     fn shift_rmw(&mut self, mode: AddressingMode, addr: Option<u16>, op: impl Fn(u8, bool) -> (u8, bool)) {
-        let (value, _) = AddressingMode::resolve_value_from_addressmode(mode, addr, &self.cpu, &self.memory);
+        let (value, _) = self.resolve_value_from_addressmode(mode, addr);
         let (result, carry) = op(value, self.cpu.get_flag(CPUFlags::CARRY));
         self.cpu.set_flag(CPUFlags::CARRY, carry);
         self.cpu.set_zn(result);
-        *AddressingMode::resolve_ref_from_addressmode(mode, addr.unwrap(), &mut self.cpu, &mut self.memory) = result;
+        match mode {
+            AddressingMode::Accumulator => { self.cpu.acc = result; }
+            _ => {
+                let (address, _) = self.resolve_address(mode, addr.unwrap())
+                    .expect("Invalid address mode");
+                self.write_addr(address, result);
+            }
+        }
     }
 
     // Used by AND, ORA and EOR
     fn bit_operation(&mut self, mode: AddressingMode, arg: Option<u16>,
         op: impl Fn(u8, u8) -> u8) {
 
-        let (memory, page_crossed) = AddressingMode::resolve_value_from_addressmode(mode, arg, &mut self.cpu, &mut self.memory);
+        let (memory, page_crossed) = self.resolve_value_from_addressmode(mode, arg);
 
         self.cpu.acc = op(self.cpu.acc, memory);
         self.cpu.set_zn(self.cpu.acc);
@@ -70,28 +57,29 @@ impl NES {
 
     // Push result onto the stack. The most common way of doing so, used by e.g. PHA
     fn stack_push(&mut self, value: u8) {
-        self.memory[0x100 + self.cpu.s as u16] = value;
+        self.write_addr(0x100 + self.cpu.s as u16, value);
         self.cpu.s = self.cpu.s.wrapping_sub(1);
     }
 
     fn stack_pull(&mut self) -> u8 {
         self.cpu.s = self.cpu.s.wrapping_add(1);
-        let result = self.memory[0x100 + self.cpu.s as u16];
+        let result = self.read(0x100 + self.cpu.s as u16);
         self.cpu.set_zn(result);
         return result;
     }
 
 
+
     pub fn tick(&mut self) {
-        let opcode = self.memory[self.cpu.pc];
+        let opcode = self.read(self.cpu.pc);
         let instruction_data = self.instruction_data[opcode as usize];
         let addr_mode = instruction_data.address_mode;
         self.cycles = instruction_data.cycles as usize;
         
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,
-            2 => Some(self.memory[self.cpu.pc.wrapping_add(1)] as u16),
-            3 => Some(((self.memory[self.cpu.pc.wrapping_add(1)] as u16) >> 8) + (self.memory[self.cpu.pc.wrapping_add(2)] as u16)),
+            2 => Some(self.read(self.cpu.pc.wrapping_add(1)) as u16),
+            3 => Some(((self.read(self.cpu.pc.wrapping_add(1)) as u16) >> 8) + (self.read(self.cpu.pc.wrapping_add(2)) as u16)),
             _ => panic!("Invalid number of bytes for opcode.")
         };
 
@@ -99,7 +87,7 @@ impl NES {
         // execute instruction...
         match instruction_data.instruction {
             Instruction::ADC => {
-                let (memory, page_crossed) = AddressingMode::resolve_value_from_addressmode(addr_mode, arg, &mut self.cpu, &mut self.memory);
+                let (memory, page_crossed) = self.resolve_value_from_addressmode(addr_mode, arg);
 
                 // A = A + memory + C
                 // Detect overflow to set the carry bit. Bit hacky, but merge two overflowing_add
@@ -119,8 +107,7 @@ impl NES {
             }
             Instruction::SBC => {
                 // A = A - memory - ~C, or A = A + ~memory + C
-                let (memory, page_crossed) = 
-                    AddressingMode::resolve_value_from_addressmode(addr_mode, arg, &mut self.cpu, &mut self.memory);
+                let (memory, page_crossed) = self.resolve_value_from_addressmode(addr_mode, arg);
 
                 // First, treat as u16 to detect overflow
                 let result: u16 = self.cpu.acc as u16 + (!memory as u16) + (self.cpu.flag_as_u8(CPUFlags::CARRY) as u16);
@@ -155,9 +142,9 @@ impl NES {
             Instruction::CPX => { self.compare_reg(addr_mode, arg, self.cpu.x); }
             Instruction::CPY => { self.compare_reg(addr_mode, arg, self.cpu.y); }
             Instruction::DEC => { 
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                let result = self.memory[addr].wrapping_sub(1);
-                self.memory[addr] = result;
+                let (addr, page_crossed) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                let result = self.read(addr).wrapping_sub(1);
+                self.write_addr(addr, result);
                 self.cpu.set_zn(result);
             }
             Instruction::DEX => {
@@ -169,9 +156,9 @@ impl NES {
                 self.cpu.set_zn(self.cpu.y);
             }
             Instruction::INC => { 
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                let result = self.memory[addr].wrapping_add(1);
-                self.memory[addr] = result;
+                let (addr, page_crossed) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                let result = self.read(addr).wrapping_add(1);
+                self.write_addr(addr, result);
 
                 self.cpu.set_zn(result);
             }
@@ -213,12 +200,12 @@ impl NES {
                 self.cpu.set_zn(self.cpu.y);
             }
             Instruction::PHP => {
-                self.memory[0x100 + (self.cpu.s as u16)] = self.cpu.flags.bits() & (1 << 4) & (1 << 5);
+                self.write_addr(0x100 + (self.cpu.s as u16), self.cpu.flags.bits() & (1 << 4) & (1 << 5));
                 self.cpu.s = self.cpu.s.wrapping_sub(1);
             }
             Instruction::PLP => {
                 self.cpu.s = self.cpu.s.wrapping_add(1);
-                let bits = self.memory[0x100 + (self.cpu.s as u16)];
+                let bits = self.read(0x100 + (self.cpu.s as u16));
                 self.cpu.set_flag(CPUFlags::CARRY,      bits & (1 << 0) != 0);
                 self.cpu.set_flag(CPUFlags::ZERO,       bits & (1 << 1) != 0);
                 self.cpu.set_flag(CPUFlags::IRQ,        bits & (1 << 2) != 0);
@@ -227,36 +214,36 @@ impl NES {
                 self.cpu.set_flag(CPUFlags::NEGATIVE,   bits & (1 << 7) != 0);
             }
             Instruction::LDA => { 
-                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                self.cpu.acc = self.memory[addr]; self.cpu.set_zn(self.cpu.acc); 
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                self.cpu.acc = self.read(addr); self.cpu.set_zn(self.cpu.acc); 
             }
             Instruction::LDX => { 
-                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                self.cpu.x = self.memory[addr]; self.cpu.set_zn(self.cpu.x); 
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                self.cpu.x = self.read(addr); self.cpu.set_zn(self.cpu.x); 
             }
             Instruction::LDY => { 
-                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                self.cpu.y = self.memory[addr]; self.cpu.set_zn(self.cpu.y); 
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                self.cpu.y = self.read(addr); self.cpu.set_zn(self.cpu.y); 
             }
             Instruction::STA => {
-                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                self.memory[addr] = self.cpu.acc;
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                self.write_addr(addr, self.cpu.acc);
             }
             Instruction::STX => {
-                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                self.memory[addr] = self.cpu.x;
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                self.write_addr(addr, self.cpu.x);
             }
             Instruction::STY => {
-                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                self.memory[addr] = self.cpu.y;
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                self.write_addr(addr, self.cpu.y);
             }
             Instruction::NOP => {
             }
             Instruction::JMP => {
                 // Begin to construct 16-bit value to be stored in PC.
                 // Denote the two component bytes as highbyte and lowbyte
-                let (highbyte_address, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
-                let high_byte = self.memory[highbyte_address]; 
+                let (highbyte_address, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                let high_byte = self.read(highbyte_address);
 
                 // Emulate NES CPU bug. When addressing a 16-bit value (spanning two byte memory
                 // addresses) that crosses a page, the low byte is read from the wrong address.
@@ -264,13 +251,13 @@ impl NES {
                 // For example, reading from high byte 0x03FF will read form low byte 0x0300, not
                 // 0x0400.
                 let lowbyte_address = 
-                    if addr_mode == AddressingMode::Indirect && addressing::address_crosses_page(highbyte_address) {
+                    if addr_mode == AddressingMode::Indirect && crate::addressing::address_crosses_page(highbyte_address) {
                         highbyte_address & 0xFF00
                     }  else {
                         highbyte_address.wrapping_add(1)
                     };
 
-                let low_byte = self.memory[lowbyte_address];
+                let low_byte = self.read(lowbyte_address);
                 self.cpu.pc = ((high_byte as u16) << 8) & (low_byte as u16);
             }
             Instruction::JSP => {
@@ -278,7 +265,7 @@ impl NES {
                 self.stack_push((self.cpu.pc + 2) as u8); // Push low byte
 
                 let addr = arg.unwrap();
-                self.cpu.pc = ((self.memory[addr] as u16) << 8) & (self.memory[addr.wrapping_add(1)] as u16);
+                self.cpu.pc = ((self.read(addr) as u16) << 8) & (self.read(addr.wrapping_add(1)) as u16);
             }
             Instruction::RTS => {
                 let low = self.stack_pull();
@@ -307,7 +294,7 @@ impl NES {
             Instruction::ORA => { self.bit_operation(addr_mode, arg, |x, y| x | y) }
             Instruction::EOR => { self.bit_operation(addr_mode, arg, |x, y| x ^ y) }
             Instruction::BIT => {
-                let (value, _) = AddressingMode::resolve_value_from_addressmode(addr_mode, arg, &mut self.cpu, &mut self.memory);
+                let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
                 self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
                 self.cpu.set_zn(value);
             }
