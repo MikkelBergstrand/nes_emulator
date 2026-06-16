@@ -133,18 +133,12 @@ impl NES {
                 self.cpu.acc = result;
                 if page_crossed { self.cycles += 1; }
             }
-            Instruction::AND => { self.bit_operation(addr_mode, arg, |x, y| x & y) }
             Instruction::ASL => self.shift_rmw(addr_mode, arg, |v, _| (v << 1, (v & 0x80) != 0)),
             Instruction::LSR => self.shift_rmw(addr_mode, arg, |v, _| (v >> 1, (v & 0x01) != 0)),
             Instruction::ROL => self.shift_rmw(addr_mode, arg, |v, c| ((v << 1) | c as u8,        (v & 0x80) != 0)),
             Instruction::ROR => self.shift_rmw(addr_mode, arg, |v, c| ((v >> 1) | (c as u8) << 7, (v & 0x01) != 0)),
             Instruction::BCC => { self.branch_if(self.cpu.get_flag(CPUFlags::CARRY), arg); },
             Instruction::BEQ => { self.branch_if(self.cpu.get_flag(CPUFlags::ZERO), arg); },
-            Instruction::BIT => {
-                let (value, page_crossed) = AddressingMode::resolve_value_from_addressmode(addr_mode, arg, &mut self.cpu, &mut self.memory);
-                self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
-                self.cpu.set_zn(value);
-            }
             Instruction::BMI => { self.branch_if(self.cpu.get_flag(CPUFlags::NEGATIVE), arg); },
             Instruction::BNE => { self.branch_if(!self.cpu.get_flag(CPUFlags::ZERO), arg); },
             Instruction::BPL => { self.branch_if(!self.cpu.get_flag(CPUFlags::NEGATIVE), arg); },
@@ -233,27 +227,27 @@ impl NES {
                 self.cpu.set_flag(CPUFlags::NEGATIVE,   bits & (1 << 7) != 0);
             }
             Instruction::LDA => { 
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
+                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 self.cpu.acc = self.memory[addr]; self.cpu.set_zn(self.cpu.acc); 
             }
             Instruction::LDX => { 
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
+                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 self.cpu.x = self.memory[addr]; self.cpu.set_zn(self.cpu.x); 
             }
             Instruction::LDY => { 
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
+                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 self.cpu.y = self.memory[addr]; self.cpu.set_zn(self.cpu.y); 
             }
             Instruction::STA => {
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
+                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 self.memory[addr] = self.cpu.acc;
             }
             Instruction::STX => {
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
+                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 self.memory[addr] = self.cpu.x;
             }
             Instruction::STY => {
-                let (addr, page_crossed) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
+                let (addr, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 self.memory[addr] = self.cpu.y;
             }
             Instruction::NOP => {
@@ -264,7 +258,7 @@ impl NES {
                 let (highbyte_address, _) = AddressingMode::to_address(addr_mode, arg.unwrap(), &self.cpu, &self.memory).unwrap();
                 let high_byte = self.memory[highbyte_address]; 
 
-                // Address NES CPU bug. When addressing a 16-bit value (spanning two byte memory
+                // Emulate NES CPU bug. When addressing a 16-bit value (spanning two byte memory
                 // addresses) that crosses a page, the low byte is read from the wrong address.
                 // Specifically, the low byte is read from the 0th address of the first page.
                 // For example, reading from high byte 0x03FF will read form low byte 0x0300, not
@@ -309,8 +303,14 @@ impl NES {
                self.cpu.set_flag(CPUFlags::OVERFLOW,    (flags & (1 << 6)) != 0);
                self.cpu.set_flag(CPUFlags::NEGATIVE,    (flags & (1 << 7)) != 0);
             }
+            Instruction::AND => { self.bit_operation(addr_mode, arg, |x, y| x & y) }
             Instruction::ORA => { self.bit_operation(addr_mode, arg, |x, y| x | y) }
             Instruction::EOR => { self.bit_operation(addr_mode, arg, |x, y| x ^ y) }
+            Instruction::BIT => {
+                let (value, _) = AddressingMode::resolve_value_from_addressmode(addr_mode, arg, &mut self.cpu, &mut self.memory);
+                self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
+                self.cpu.set_zn(value);
+            }
             _ => panic!("unimplemented instruction {}", instruction_data.instruction)
         }
 
