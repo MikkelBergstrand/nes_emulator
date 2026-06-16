@@ -4,22 +4,20 @@ use std::fmt;
 #[derive(Copy, Clone)]
 pub enum Instruction {
     ERR,
+    LDA, STA, LDX, STX, LDY, STY,
+    TAX, TXA, TAY, TYA,
     ADC, SBC,
-    AND, ORA, EOR, BIT,
-    ASL, // Arithmetic Shift Left
-    BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS,
-    CLC, CLD, CLI, CLV, 
-    SEC, SEI, SED,
-    CMP, CPX, CPY,
     DEC, DEX, DEY,
     INC, INX, INY,
-    LSR,
-    JMP, JSP,
-    NOP,
-    ROL, ROR,
+    AND, ORA, EOR, BIT,
+    ASL, LSR, ROL, ROR, 
+    CMP, CPX, CPY,
+    BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS,
+    JMP, JSP, RTS, BRK, RTI,
     PHA, PHP, PLA, PLP, TSX, TXS,
-    TAX, TXA, TAY, TYA,
-    LDA, STA, LDX, STX, LDY, STY
+    CLC, CLD, CLI, CLV, 
+    SEC, SEI, SED,
+    NOP,
 }
 
 impl fmt::Display for Instruction {
@@ -79,6 +77,9 @@ impl fmt::Display for Instruction {
             Instruction::STY => "sty",
             Instruction::JMP => "jmp",
             Instruction::JSP => "jsp",
+            Instruction::RTS => "rts",
+            Instruction::BRK => "brk",
+            Instruction::RTI => "rti",
         };
         f.write_str(s)
     }

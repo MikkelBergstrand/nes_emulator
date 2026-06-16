@@ -49,6 +49,13 @@ impl NES {
         self.cpu.s = self.cpu.s.wrapping_sub(1);
     }
 
+    fn stack_pull(&mut self) -> u8 {
+        self.cpu.s = self.cpu.s.wrapping_add(1);
+        let result = self.memory[0x100 + self.cpu.s as u16];
+        self.cpu.set_zn(result);
+        return result;
+    }
+
     pub fn tick(&mut self) {
         let opcode = self.memory[self.cpu.pc];
         let instruction_data = self.instruction_data[opcode as usize];
@@ -157,9 +164,7 @@ impl NES {
                 self.cpu.set_zn(self.cpu.y);
             }
             Instruction::PLA => {
-                self.cpu.s = self.cpu.s.wrapping_add(1);
-                self.cpu.acc = self.memory[0x100 + self.cpu.s as u16];
-                self.cpu.set_zn(self.cpu.acc);
+                self.cpu.acc = self.stack_pull();
             }
             Instruction::PHA => {
                 self.stack_push(self.cpu.acc);
@@ -254,6 +259,29 @@ impl NES {
 
                 let addr = addr.unwrap();
                 self.cpu.pc = ((self.memory[addr] as u16) << 8) & (self.memory[addr.wrapping_add(1)] as u16);
+            }
+            Instruction::RTS => {
+                let low = self.stack_pull();
+                let high = self.stack_pull();
+                self.cpu.pc = (((high as u16) << 8) & (low as u16)).wrapping_add(1);
+            }
+            Instruction::BRK => {
+                let value = self.cpu.pc.wrapping_add(2);
+                self.stack_push((value >> 8) as u8); // push high byte
+                self.stack_push(value as u8); // push low byte
+                self.stack_push(self.cpu.flags.bits() | (1 << 5) | (1 << 4));
+                self.cpu.pc = 0xFFFE;
+            }
+            Instruction::RTI => {
+               let flags = self.stack_pull();
+               self.cpu.pc = ((self.stack_pull() as u16) << 8) & (self.stack_pull() as u16);
+
+               self.cpu.set_flag(CPUFlags::CARRY,       (flags & (1 << 0)) != 0);
+               self.cpu.set_flag(CPUFlags::ZERO,        (flags & (1 << 1)) != 0);
+               self.cpu.set_flag(CPUFlags::IRQ,         (flags & (1 << 2)) != 0);
+               self.cpu.set_flag(CPUFlags::DECIMAL,     (flags & (1 << 3)) != 0);
+               self.cpu.set_flag(CPUFlags::OVERFLOW,    (flags & (1 << 6)) != 0);
+               self.cpu.set_flag(CPUFlags::NEGATIVE,    (flags & (1 << 7)) != 0);
             }
             _ => panic!("unimplemented instruction {}", instruction_data.instruction)
         }
