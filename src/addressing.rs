@@ -26,42 +26,47 @@ impl AddressingMode {
         match mode {
             AddressingMode::Accumulator => &mut cpu.acc,
             _ => {
-                let address = AddressingMode::to_address(mode, arg, cpu, memory);
-                &mut memory[address.expect("Invalid address mode")]
+                let (address, _) = AddressingMode::to_address(mode, arg, cpu, memory)
+                    .expect("Invalid address mode");
+                &mut memory[address]
             }
         }
     }
 
-    pub fn resolve_value_from_addressmode(mode: AddressingMode, arg: Option<u16>, cpu: &CPU, memory: &Memory) -> u8 {
+    pub fn resolve_value_from_addressmode(mode: AddressingMode, arg: Option<u16>, cpu: &CPU, memory: &Memory) -> (u8, bool) {
         match mode {
-            AddressingMode::Accumulator => cpu.acc,
-            AddressingMode::Immediate => { arg.expect("Immediate address mode requires an argument") as u8 },
+            AddressingMode::Accumulator => (cpu.acc, false),
+            AddressingMode::Immediate => { (arg.expect("Immediate address mode requires an argument") as u8, false)},
             _ => {
                 let arg = arg.expect("Address mode requires an argument");
-                let addr = AddressingMode::to_address(mode, arg, cpu, memory)
+                let (addr, extra_cycle) = AddressingMode::to_address(mode, arg, cpu, memory)
                     .expect("Invalid opcode. Cannot request address alongside this addressing mode.");
-                memory[addr]
+                (memory[addr], extra_cycle)
             }
         }
     }
 
-    pub fn to_address(mode: AddressingMode, address: u16, cpu: &CPU, memory: &Memory) -> Option<u16> {
+    pub fn to_address(mode: AddressingMode, address: u16, cpu: &CPU, memory: &Memory) -> Option<(u16, bool)> {
+        fn check_crosses_page(address: u16) -> Option<(u16, bool)>  {
+            return Some((address, address_crosses_page(address)));
+        }
+
         let address_u8 = address as u8;
         match mode {
-            AddressingMode::ZeroPage => { return Some(address) },
-            AddressingMode::ZeroPageX => { return Some((address + (cpu.x as u16)) % 256)},
-            AddressingMode::ZeroPageY => { return Some((address + (cpu.y as u16)) % 256)},
-            AddressingMode::AbsoluteX => { return Some(address.wrapping_add(cpu.x as u16)) },
-            AddressingMode::AbsoluteY => { return Some(address.wrapping_add(cpu.y as u16)) },
+            AddressingMode::ZeroPage => { return Some((address, false)) },
+            AddressingMode::ZeroPageX => { return Some(((address + (cpu.x as u16)) % 256, false)) },
+            AddressingMode::ZeroPageY => { return Some(((address + (cpu.y as u16)) % 256, false)) },
+            AddressingMode::AbsoluteX => { return check_crosses_page(address.wrapping_add(cpu.x as u16)) },
+            AddressingMode::AbsoluteY => { return check_crosses_page(address.wrapping_add(cpu.y as u16)) },
             AddressingMode::IndirectX => { 
                 let arg1 = memory[address_u8.wrapping_add(cpu.x) as u16] as u16;
                 let arg2 = memory[address_u8.wrapping_add(cpu.x).wrapping_add(1) as u16] as u16 * 256;
-                Some(arg1 + arg2)
+                Some((arg1 + arg2, false))
             },
             AddressingMode::IndirectY => {
                 let arg1 = memory[address] as u16;
                 let arg2 = memory[address.wrapping_add(1) as u16] as u16 * 256;
-                Some(arg1 + arg2 + cpu.y as u16)
+                check_crosses_page(arg1 + arg2 + cpu.y as u16)
             }
             _ => { return None; }
         }
