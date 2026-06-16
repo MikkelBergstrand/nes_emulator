@@ -14,7 +14,7 @@ pub enum Instruction {
     DEC, DEX, DEY,
     INC, INX, INY,
     LSR,
-    JMP, JSR,
+    JMP, JSP,
     NOP,
     ROL, ROR,
     PHA, PHP, PLA, PLP, TSX, TXS,
@@ -78,7 +78,7 @@ impl fmt::Display for Instruction {
             Instruction::STX => "stx",
             Instruction::STY => "sty",
             Instruction::JMP => "jmp",
-            Instruction::JSR => "jsr",
+            Instruction::JSP => "jsp",
         };
         f.write_str(s)
     }
