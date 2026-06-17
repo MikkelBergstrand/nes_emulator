@@ -130,13 +130,14 @@ impl NES {
             Instruction::LSR => self.shift_rmw(addr_mode, arg, |v, _| (v >> 1, (v & 0x01) != 0)),
             Instruction::ROL => self.shift_rmw(addr_mode, arg, |v, c| ((v << 1) | c as u8,        (v & 0x80) != 0)),
             Instruction::ROR => self.shift_rmw(addr_mode, arg, |v, c| ((v >> 1) | (c as u8) << 7, (v & 0x01) != 0)),
-            Instruction::BCC => { self.branch_if(self.cpu.get_flag(CPUFlags::CARRY), arg); },
+            Instruction::BCC => { self.branch_if(!self.cpu.get_flag(CPUFlags::CARRY), arg); },
             Instruction::BEQ => { self.branch_if(self.cpu.get_flag(CPUFlags::ZERO), arg); },
             Instruction::BMI => { self.branch_if(self.cpu.get_flag(CPUFlags::NEGATIVE), arg); },
             Instruction::BNE => { self.branch_if(!self.cpu.get_flag(CPUFlags::ZERO), arg); },
             Instruction::BPL => { self.branch_if(!self.cpu.get_flag(CPUFlags::NEGATIVE), arg); },
             Instruction::BVC => { self.branch_if(!self.cpu.get_flag(CPUFlags::OVERFLOW), arg); },
             Instruction::BVS => { self.branch_if(self.cpu.get_flag(CPUFlags::OVERFLOW), arg); },
+            Instruction::BCS => { self.branch_if(self.cpu.get_flag(CPUFlags::CARRY), arg); },
             Instruction::CLC => { self.cpu.set_flag(CPUFlags::CARRY, false); },
             Instruction::CLD => { self.cpu.set_flag(CPUFlags::DECIMAL, false); },
             Instruction::CLI => { self.cpu.set_flag(CPUFlags::IRQ, false); },
@@ -304,7 +305,7 @@ impl NES {
                 self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
                 self.cpu.set_zn(value);
             }
-            _ => panic!("unimplemented instruction {}", instruction_data.instruction)
+            Instruction::ERR => panic!("unimplemented instruction {}", instruction_data.instruction)
         }
 
 

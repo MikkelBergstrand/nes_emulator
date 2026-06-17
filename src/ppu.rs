@@ -14,9 +14,13 @@ pub struct PPU {
 
 impl PPU {
     pub fn new() -> Self {
-        Self{
+        let mut ret = Self{
             data: [0; 8]
-        }
+        };
+
+        ret.data[2] = 0xFF;
+        
+        ret
     }
 
     pub fn write(&mut self, addr: u8, data: u8) {
