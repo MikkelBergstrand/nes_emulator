@@ -81,6 +81,6 @@ impl fmt::Display for Instruction {
             Instruction::BRK => "brk",
             Instruction::RTI => "rti",
         };
-        f.write_str(s)
+        f.write_str(&s.to_uppercase())
     }
 }

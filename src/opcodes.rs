@@ -12,6 +12,7 @@ pub struct InstructionData {
 }
 
 
+
 macro_rules! op {
     ($data:ident, $opcode:expr, $mode:ident, $instr:ident, $bytes:expr, $cycles:expr) => {
         $data[$opcode] = InstructionData {
@@ -24,6 +25,26 @@ macro_rules! op {
 }
 
 impl InstructionData {
+    pub fn to_string(&self, arg: Option<u16>) -> String {
+        let arg_string = match self.address_mode {
+            AddressingMode::Immediate => format!("#${:X}", arg.unwrap()),
+            AddressingMode::Absolute =>  format!("${:04X}", arg.unwrap()),
+            AddressingMode::AbsoluteX => format!("${:04X},X", arg.unwrap()),
+            AddressingMode::AbsoluteY => format!("${:04X},Y", arg.unwrap()),
+            AddressingMode::Indirect  => format!("(${:04X})", arg.unwrap()),
+            AddressingMode::IndirectX => format!("(${:04X}),X)", arg.unwrap()),
+            AddressingMode::IndirectY => format!("(${:04X}),Y", arg.unwrap()),
+            AddressingMode::ZeroPage =>  format!("${:02X}", arg.unwrap()),
+            AddressingMode::ZeroPageX => format!("${:02X},X", arg.unwrap()),
+            AddressingMode::ZeroPageY => format!("${:02X},Y", arg.unwrap()),
+            AddressingMode::Relative => format!("{:02X}", arg.unwrap()),
+            AddressingMode::Accumulator => format!("A"),
+            AddressingMode::Implied => format!(""),
+        };
+        format!("{} {}", self.instruction, arg_string)
+    }
+
+
     const fn invalid() -> InstructionData {
         Self {
             bytes: 0,

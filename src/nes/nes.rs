@@ -78,16 +78,15 @@ impl NES {
         let addr_mode = instruction_data.address_mode;
         self.cycles = instruction_data.cycles as usize;
 
-        println!("Opcode 0x{:x}", opcode);
-        dbg!(instruction_data);
-        dbg!(&self.cpu);
-        
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,
             2 => Some(self.read(self.cpu.pc.wrapping_add(1)) as u16),
             3 => Some(((self.read(self.cpu.pc.wrapping_add(1)) as u16)) | ((self.read(self.cpu.pc.wrapping_add(2)) as u16) << 8)),
             _ => panic!("Invalid number of bytes for opcode.")
         };
+
+
+        println!("{}", instruction_data.to_string(arg));
 
         // advance program counter
         self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
