@@ -7,7 +7,6 @@ impl CPU {
             x: 0,
             y: 0,
             pc: 0,
-            p: 0,
             s: 0xFD,
             flags: CPUFlags::IRQ,
         };

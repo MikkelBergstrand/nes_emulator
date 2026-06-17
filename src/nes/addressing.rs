@@ -12,6 +12,7 @@ impl NES {
             AddressingMode::ZeroPage => { return Some((address, false)) },
             AddressingMode::ZeroPageX => { return Some(((address + (self.cpu.x as u16)) % 256, false)) },
             AddressingMode::ZeroPageY => { return Some(((address + (self.cpu.y as u16)) % 256, false)) },
+            AddressingMode::Absolute => {  return Some((address, false)) },
             AddressingMode::AbsoluteX => { return check_crosses_page(address.wrapping_add(self.cpu.x as u16)) },
             AddressingMode::AbsoluteY => { return check_crosses_page(address.wrapping_add(self.cpu.y as u16)) },
             AddressingMode::IndirectX => { 
@@ -31,6 +32,7 @@ impl NES {
     pub fn resolve_value_from_addressmode(&mut self, mode: AddressingMode, arg: Option<u16>) -> (u8, bool) {
         match mode {
             AddressingMode::Accumulator => (self.cpu.acc, false),
+            AddressingMode::Immediate => (arg.unwrap() as u8, false),
             _ => {
                 let arg = arg.expect("Address mode requires an argument");
                 let (addr, extra_cycle) = self.resolve_address(mode, arg)

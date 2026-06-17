@@ -34,8 +34,9 @@ impl NES {
     }
 
     pub fn read_u16(&mut self, addr: u16) -> u16 {
-        let high = self.read(addr) as u16;
-        let low = self.read(addr.wrapping_add(1)) as u16;
+        // Note little-endian format!
+        let low = self.read(addr) as u16;
+        let high = self.read(addr.wrapping_add(1)) as u16;
         return (high << 8) | low;
     }
 

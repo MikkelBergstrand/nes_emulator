@@ -15,6 +15,7 @@ bitflags! {
     }
 }
 
+#[derive(Debug)]
 pub struct CPU {
     // Registers
     pub acc: u8,
@@ -22,7 +23,6 @@ pub struct CPU {
     pub y: u8,
     pub pc: u16,
     pub s: u8,
-    pub p: u8,
     pub flags: CPUFlags,
 }
 

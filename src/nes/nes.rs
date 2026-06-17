@@ -10,8 +10,10 @@ impl NES {
     fn branch_if(&mut self, condition: bool, addr: Option<u16>) {
         if condition {
             let offset = addr.unwrap() as i8;
-            let target = self.cpu.pc.wrapping_add(2).wrapping_add(offset as i16 as u16);
 
+            let target = self.cpu.pc.wrapping_add(offset as i16 as u16);
+
+            println!("Branch to {:04X} taken!", target);
             let crossed_page = (self.cpu.pc & 0xFF00) != (target & 0xFF00);
             self.cpu.pc = target;
 
@@ -78,14 +80,14 @@ impl NES {
 
         println!("Opcode 0x{:x}", opcode);
         dbg!(instruction_data);
+        dbg!(&self.cpu);
         
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,
             2 => Some(self.read(self.cpu.pc.wrapping_add(1)) as u16),
-            3 => Some(((self.read(self.cpu.pc.wrapping_add(1)) as u16) >> 8) + (self.read(self.cpu.pc.wrapping_add(2)) as u16)),
+            3 => Some(((self.read(self.cpu.pc.wrapping_add(1)) as u16)) | ((self.read(self.cpu.pc.wrapping_add(2)) as u16) << 8)),
             _ => panic!("Invalid number of bytes for opcode.")
         };
-
 
         // advance program counter
         self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
@@ -220,16 +222,16 @@ impl NES {
                 self.cpu.set_flag(CPUFlags::NEGATIVE,   bits & (1 << 7) != 0);
             }
             Instruction::LDA => { 
-                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
-                self.cpu.acc = self.read(addr); self.cpu.set_zn(self.cpu.acc); 
+                let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
+                self.cpu.acc = value; self.cpu.set_zn(self.cpu.acc); 
             }
             Instruction::LDX => { 
-                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
-                self.cpu.x = self.read(addr); self.cpu.set_zn(self.cpu.x); 
+                let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
+                self.cpu.x = value; self.cpu.set_zn(self.cpu.x); 
             }
             Instruction::LDY => { 
-                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
-                self.cpu.y = self.read(addr); self.cpu.set_zn(self.cpu.y); 
+                let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
+                self.cpu.y = value; self.cpu.set_zn(self.cpu.y); 
             }
             Instruction::STA => {
                 let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
@@ -248,22 +250,22 @@ impl NES {
             Instruction::JMP => {
                 // Begin to construct 16-bit value to be stored in PC.
                 // Denote the two component bytes as highbyte and lowbyte
-                let (highbyte_address, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
-                let high_byte = self.read(highbyte_address);
+                let (lowbyte_address, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                let low_byte = self.read(lowbyte_address);
 
                 // Emulate NES CPU bug. When addressing a 16-bit value (spanning two byte memory
                 // addresses) that crosses a page, the low byte is read from the wrong address.
                 // Specifically, the low byte is read from the 0th address of the first page.
                 // For example, reading from high byte 0x03FF will read form low byte 0x0300, not
                 // 0x0400.
-                let lowbyte_address = 
-                    if addr_mode == AddressingMode::Indirect && crate::addressing::address_crosses_page(highbyte_address) {
-                        highbyte_address & 0xFF00
+                let highbyte_address = 
+                    if addr_mode == AddressingMode::Indirect && crate::addressing::address_crosses_page(lowbyte_address) {
+                        lowbyte_address & 0xFF00
                     }  else {
-                        highbyte_address.wrapping_add(1)
+                        lowbyte_address.wrapping_add(1)
                     };
 
-                let low_byte = self.read(lowbyte_address);
+                let high_byte = self.read(highbyte_address);
                 self.cpu.pc = ((high_byte as u16) << 8) & (low_byte as u16);
             }
             Instruction::JSR => {
@@ -279,7 +281,7 @@ impl NES {
                 self.cpu.pc = (((high as u16) << 8) & (low as u16)).wrapping_add(1);
             }
             Instruction::BRK => {
-                let value = self.cpu.pc.wrapping_add(2);
+                let value = self.cpu.pc;
                 self.stack_push((value >> 8) as u8); // push high byte
                 self.stack_push(value as u8); // push low byte
                 self.stack_push(self.cpu.flags.bits() | (1 << 5) | (1 << 4));
