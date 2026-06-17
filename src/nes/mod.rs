@@ -19,13 +19,15 @@ pub struct NES {
 
 impl NES {
     pub fn new(rom_data: &[u8]) -> Self {
-        Self {
+        let mut nes = Self {
             cpu: CPU::new(),
             ppu: PPU::new(),
             ram: RAM::new(),
             rom: ROM::new(rom_data),
             instruction_data: InstructionData::make_instruction_table(),
             cycles: 0,
-        }
+        };
+        nes.cpu.pc = nes.read_u16(0xFFFC);
+        return nes
     } 
 }

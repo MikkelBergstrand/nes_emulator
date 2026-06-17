@@ -90,6 +90,12 @@ impl InstructionData {
         op!(data, 0x24, ZeroPage, BIT, 2, 3);
         op!(data, 0x2C, Absolute, BIT, 3, 4);
 
+        //BCS
+        op!(data, 0xB0, Relative, BCS, 2, 2);
+
+        //BEQ
+        op!(data, 0xF0, Relative, BEQ, 2, 2);
+
         //BMI
         op!(data, 0x30, Relative, BIT, 2, 2);
 

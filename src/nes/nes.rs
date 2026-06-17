@@ -87,6 +87,9 @@ impl NES {
         };
 
 
+        // advance program counter
+        self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
+
         // execute instruction...
         match instruction_data.instruction {
             Instruction::ADC => {
@@ -280,7 +283,7 @@ impl NES {
                 self.stack_push((value >> 8) as u8); // push high byte
                 self.stack_push(value as u8); // push low byte
                 self.stack_push(self.cpu.flags.bits() | (1 << 5) | (1 << 4));
-                self.cpu.pc = 0xFFFE;
+                self.cpu.pc = self.read_u16(0xFFFE);
             }
             Instruction::RTI => {
                let flags = self.stack_pull();
@@ -304,8 +307,6 @@ impl NES {
             _ => panic!("unimplemented instruction {}", instruction_data.instruction)
         }
 
-        // advance program counter
-        self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
 
     }
 }
