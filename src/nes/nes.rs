@@ -78,6 +78,10 @@ impl NES {
         let addr_mode = instruction_data.address_mode;
         self.cycles = instruction_data.cycles as usize;
 
+        if matches!(instruction_data.instruction, Instruction::ERR) {
+            panic!("Invalid instruction.")
+        }
+
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,
             2 => Some(self.read(self.cpu.pc.wrapping_add(1)) as u16),
@@ -272,7 +276,7 @@ impl NES {
                 self.stack_push((self.cpu.pc + 2) as u8); // Push low byte
 
                 let addr = arg.unwrap();
-                self.cpu.pc = ((self.read(addr) as u16) << 8) & (self.read(addr.wrapping_add(1)) as u16);
+                self.cpu.pc = self.read_u16(addr);
             }
             Instruction::RTS => {
                 let low = self.stack_pull();
