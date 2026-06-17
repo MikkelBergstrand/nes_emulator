@@ -76,7 +76,8 @@ impl NES {
         let addr_mode = instruction_data.address_mode;
         self.cycles = instruction_data.cycles as usize;
 
-        dbg!(opcode, instruction_data);
+        println!("Opcode 0x{:x}", opcode);
+        dbg!(instruction_data);
         
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,
@@ -262,7 +263,7 @@ impl NES {
                 let low_byte = self.read(lowbyte_address);
                 self.cpu.pc = ((high_byte as u16) << 8) & (low_byte as u16);
             }
-            Instruction::JSP => {
+            Instruction::JSR => {
                 self.stack_push(((self.cpu.pc + 2) >> 8) as u8); // Push high byte
                 self.stack_push((self.cpu.pc + 2) as u8); // Push low byte
 

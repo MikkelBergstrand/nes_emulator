@@ -9,5 +9,8 @@ impl ROM {
         ROM { data: data.try_into().unwrap() } 
     }
 
-    pub fn read(&self, addr: u8) -> u8 { self.data[addr as usize] }
+    pub fn read(&self, addr: u16) -> u8 { 
+        println!("ROM read: {:x}", addr);
+        self.data[addr as usize] 
+    }
 }
