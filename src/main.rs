@@ -4,20 +4,25 @@ mod app;
 mod addressing;
 mod opcodes;
 mod ram;
+mod rom;
 mod cpu;
 mod ppu;
 mod instruction;
 mod nes;
 mod nes_parser;
 
-use app::run;
+use std::{thread::sleep, time::Duration};
+
+use nes::NES;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // app::run()?;
-    match nes_parser::read("smb1.nes") {
-        Ok(_) => {}
-        Err(e) => { println!("Error parsing ROM"); }
-
+    let nes_data = nes_parser::read("smb1.nes")?;
+    dbg!(nes_data.prg_rom.len());
+    let mut nes = NES::new(&nes_data.prg_rom);
+    loop {
+        nes.tick();
+        sleep(Duration::from_secs(1));
     }
     Ok(())
 }

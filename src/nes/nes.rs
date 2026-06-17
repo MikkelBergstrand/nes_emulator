@@ -75,6 +75,8 @@ impl NES {
         let instruction_data = self.instruction_data[opcode as usize];
         let addr_mode = instruction_data.address_mode;
         self.cycles = instruction_data.cycles as usize;
+
+        dbg!(opcode, instruction_data);
         
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,

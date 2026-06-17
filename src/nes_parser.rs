@@ -1,4 +1,8 @@
+use core::fmt;
 use std::{fs, usize};
+
+use crate::nes::NES;
+use std::error::Error;
 
 
 #[derive(Debug)]
@@ -24,7 +28,8 @@ struct NES2Header {
     console_type: ConsoleType,
     mapper: u16,  
     submapper: u8,
-    prg_rom_size: u16, chr_rom_size: u16,
+    prg_rom_size: u16, 
+    chr_rom_size: u16,
     prg_ram_size: u16,
     prg_nvram_size: u16,
     chr_ram_size: u16,
@@ -32,6 +37,11 @@ struct NES2Header {
     timing_mode: TimingMode,
     default_expansion_device: u8,
     misc_roms: u8,
+}
+
+pub struct NESData {
+    pub prg_rom: Vec<u8>,
+    pub chr_rom: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -55,13 +65,32 @@ pub enum RomError {
     UnrecognizedFormat,
 }
 
+impl fmt::Display for RomError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RomError::Io(e) => write!(f, "I/O error reading ROM: {e}"),
+            RomError::UnrecognizedFormat => write!(f, "unrecognized ROM format"),
+        }
+    }
+}
+
+impl std::error::Error for RomError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+       match self {
+            RomError::Io(e) => Some(e),
+            RomError::UnrecognizedFormat => None
+       } 
+    }
+}
+
+
 impl From<std::io::Error> for RomError {
     fn from(e: std::io::Error) -> Self {
         RomError::Io(e)
     }
 }
 
-pub fn read(filename: &str) -> Result<Vec<u8>, RomError> {
+pub fn read(filename: &str) -> Result<NESData, RomError> {
     let bytes: Vec<u8> = fs::read(filename)?;
     dump_bytes(&bytes);
 
@@ -81,15 +110,18 @@ pub fn read(filename: &str) -> Result<Vec<u8>, RomError> {
 
     // ROM Size is in units of 16kB
     let prg_rom_size: usize = nes2_header.prg_rom_size as usize * (1 << 14);
-    let prg_rom_data = &bytes[offset..(offset+prg_rom_size)];
+    let prg_rom_data = &bytes.get(offset..(offset+prg_rom_size)).ok_or(RomError::UnrecognizedFormat)?;
     offset += prg_rom_size;
 
     // Units of 8kB
     let chr_rom_size = nes2_header.chr_rom_size as usize * (1 << 13);
-    let chr_rom_data = &bytes[offset..(offset+chr_rom_size)];
+    let chr_rom_data = bytes.get(offset..(offset+chr_rom_size)).ok_or(RomError::UnrecognizedFormat)?;
     offset += chr_rom_size;
 
-    Ok(bytes)
+    Ok(NESData {
+        prg_rom: prg_rom_data.to_vec(),
+        chr_rom: chr_rom_data.to_vec(),
+    })
 }
 
 pub fn parse_nes2_header(bytes: &[u8]) -> NES2Header {

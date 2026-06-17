@@ -1,5 +1,4 @@
-use super::CPU;
-use super::CPUFlags;
+use super::{CPU, CPUFlags};
 
 impl CPU {
     pub fn new() -> CPU {

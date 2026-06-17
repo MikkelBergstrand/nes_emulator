@@ -3,7 +3,7 @@ use crate::addressing::AddressingMode;
 
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct InstructionData {
     pub address_mode: AddressingMode,
     pub instruction: Instruction,

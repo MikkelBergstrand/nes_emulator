@@ -1,7 +1,7 @@
 // How to interpret the bytes following an instruction.
 // Different address modes might address the CPU, memory, or treat the bytes
 // as a raw value.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum AddressingMode {
     Immediate,
     Implied,

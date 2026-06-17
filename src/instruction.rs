@@ -1,7 +1,7 @@
 
 use std::fmt;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum Instruction {
     ERR,
     LDA, STA, LDX, STX, LDY, STY,
