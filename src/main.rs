@@ -16,8 +16,9 @@ use std::{thread::sleep, time::Duration};
 use nes::NES;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // app::run()?;
-    let nes_data = nes_parser::read("smb1.nes")?;
+    let rom_file = std::env::args().nth(1).unwrap_or(String::from("smb1.nes"));
+
+    let nes_data = nes_parser::read(&rom_file)?;
     dbg!(nes_data.prg_rom.len());
     let mut nes = NES::new(&nes_data.prg_rom);
     loop {
