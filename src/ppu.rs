@@ -1,12 +1,12 @@
 
 pub struct PPU {
-    value: u8
+    data: [u8; 8],
 }
 
 impl PPU {
     pub fn new() -> Self {
         Self{
-            value: 0
+            data: [0; 8]
         }
     }
 
@@ -15,6 +15,6 @@ impl PPU {
     }
 
     pub fn read(&mut self, addr: u8) -> u8 {
-        return self.value;
+        return self.data[addr as usize];
     }
 }
