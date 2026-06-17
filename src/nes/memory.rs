@@ -14,7 +14,7 @@ impl NES {
         println!("Writing to {:04x}, {:?} {:02x}", addr, target, value);
         match target {
             Target::RAM(addr) => { self.ram[addr] = value; }
-            Target::PPU(addr) => { self.ppu.write(addr); }
+            Target::PPU(addr) => { self.ppu.write(addr, value); }
             Target::ROM(_) => { println!("Attempted write to ROM"); }
         }
     }

@@ -85,7 +85,6 @@ impl NES {
             _ => panic!("Invalid number of bytes for opcode.")
         };
 
-
         println!("{}", instruction_data.to_string(arg));
 
         // advance program counter
