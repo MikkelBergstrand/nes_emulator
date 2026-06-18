@@ -17,9 +17,7 @@ impl PPU {
         let mut ret = Self{
             data: [0; 8]
         };
-
         ret.data[2] = 0xFF;
-        
         ret
     }
 
