@@ -11,8 +11,9 @@ mod instruction;
 mod nes;
 mod nes_parser;
 
-use std::{thread::sleep, time::Duration};
+use std::{process::exit, thread::sleep, time::Duration};
 
+use image::RgbImage;
 use nes::NES;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,6 +22,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let nes_data = nes_parser::read(&rom_file)?;
     dbg!(nes_data.prg_rom.len());
     let mut nes = NES::new(&nes_data.prg_rom);
+
+    let (image_bytes, w, h) = ppu::pattern_table::pattern_tables_to_bytes(&nes_data.chr_rom);
+    let image = RgbImage::from_raw(w as u32, h as u32, image_bytes).unwrap();
+    let _ = image.save("out.png");
+    exit(0);
     loop {
         nes.tick();
     } 

@@ -71,6 +71,29 @@ impl NES {
 
 
     pub fn tick(&mut self) {
+        if self.ppu.pending_nmi() {
+            println!("NMI processed");
+            self.process_nmi();
+            self.ppu.clear_nmi();
+        }
+
+        self.cpu_tick();
+        for _ in 0..3 {
+            self.ppu.tick();
+        }
+
+    }
+
+    fn process_nmi(&mut self) {
+        let target = self.cpu.pc;
+        self.stack_push((target >> 8) as u8);
+        self.stack_push(target as u8);
+        self.stack_push(self.cpu.flags.bits());
+        self.cpu.set_flag(CPUFlags::BREAK, false);
+        self.cpu.pc = self.read_u16(0xFFFA);
+    }
+
+    fn cpu_tick(&mut self) {
         let opcode = self.read(self.cpu.pc);
         let instruction_data = self.instruction_data[opcode as usize];
         let addr_mode = instruction_data.address_mode;
