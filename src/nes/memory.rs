@@ -4,7 +4,7 @@ use super::NES;
 
 #[derive(Debug)]
 enum Target {
-    RAM(u16), PPU(u8), ROM(u16)
+    RAM(u16), PPU(u8), ROM(u16), Unspecified
 }
 
 impl NES {
@@ -16,6 +16,7 @@ impl NES {
             Target::RAM(addr) => { self.ram[addr] = value; }
             Target::PPU(addr) => { self.ppu.write(addr, value); }
             Target::ROM(_) => { println!("Attempted write to ROM"); }
+            Target::Unspecified => {}
         }
     }
 
@@ -27,6 +28,7 @@ impl NES {
             Target::RAM(addr) => { self.ram[addr] }
             Target::PPU(addr) => { self.ppu.read(addr as u8) }
             Target::ROM(addr) => { self.rom.read(addr) }
+            Target::Unspecified => { 0 }
         };
 
         println!("Reading from {:04x}, {:?} = {:02x}", addr, target, ret);
@@ -43,10 +45,10 @@ impl NES {
     // Takes in a general 16-bit address, and decides which component is addressed.
     fn resolve_mmap(&mut self, addr: u16) -> Target {
         match addr {
-            0x0000..0x2000  => Target::RAM(addr & 0x01FF),
+            0x0000..0x2000  => Target::RAM(addr & 0x0FFF),
             0x2000..0x4000  => Target::PPU((addr as u8) % 8),
             0x8000..=0xFFFF => Target::ROM(addr & 0x7FFF),
-            _ => panic!("Unimplemented")
+            _ => Target::Unspecified
         }
     }
 

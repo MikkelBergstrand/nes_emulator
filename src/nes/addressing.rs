@@ -17,13 +17,13 @@ impl NES {
             AddressingMode::AbsoluteY => { return check_crosses_page(address.wrapping_add(self.cpu.y as u16)) },
             AddressingMode::IndirectX => { 
                 let arg1 = self.read(address_u8.wrapping_add(self.cpu.x) as u16) as u16;
-                let arg2 = self.read(address_u8.wrapping_add(self.cpu.x).wrapping_add(1) as u16) as u16 * 256;
-                Some((arg1 + arg2, false))
+                let arg2 = self.read(address_u8.wrapping_add(self.cpu.x).wrapping_add(1) as u16) as u16;
+                Some((arg1 + (arg2 << 8), false))
             },
             AddressingMode::IndirectY => {
                 let arg1 = self.read(address) as u16;
-                let arg2 = self.read(address.wrapping_add(1) as u16) as u16 * 256;
-                check_crosses_page(arg1 + arg2 + self.cpu.y as u16)
+                let arg2 = self.read(address.wrapping_add(1) % 256) as u16;
+                check_crosses_page(arg1 + (arg2 << 8) + (self.cpu.y as u16))
             }
             _ => { return None; }
         }

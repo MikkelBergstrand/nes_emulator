@@ -202,7 +202,7 @@ impl InstructionData {
         op!(data, 0xC8, Implied, INY, 1, 2);
 
         //JMP
-        op!(data, 0x4C, Absolute, JMP, 3, 5);
+        op!(data, 0x4C, Absolute, JMP, 3, 3);
         op!(data, 0x6C, Indirect, JMP, 3, 5);
 
         //JSR

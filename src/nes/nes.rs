@@ -59,17 +59,15 @@ impl NES {
 
     // Push result onto the stack. The most common way of doing so, used by e.g. PHA
     fn stack_push(&mut self, value: u8) {
-        self.write_addr(0x100 + self.cpu.s as u16, value);
+        self.write_addr(0x0100 + (self.cpu.s as u16), value);
         self.cpu.s = self.cpu.s.wrapping_sub(1);
     }
 
     fn stack_pull(&mut self) -> u8 {
         self.cpu.s = self.cpu.s.wrapping_add(1);
-        let result = self.read(0x100 + self.cpu.s as u16);
-        self.cpu.set_zn(result);
+        let result = self.read(0x0100 + (self.cpu.s as u16));
         return result;
     }
-
 
 
     pub fn tick(&mut self) {
@@ -79,7 +77,7 @@ impl NES {
         self.cycles = instruction_data.cycles as usize;
 
         if matches!(instruction_data.instruction, Instruction::ERR) {
-            panic!("Invalid instruction.")
+            panic!("Invalid opcode {:02X}", opcode);
         }
 
         let arg: Option<u16> = match instruction_data.bytes {
@@ -183,6 +181,7 @@ impl NES {
             }
             Instruction::PLA => {
                 self.cpu.acc = self.stack_pull();
+                self.cpu.set_zn(self.cpu.acc);
             }
             Instruction::PHA => {
                 self.stack_push(self.cpu.acc);
@@ -251,37 +250,41 @@ impl NES {
             Instruction::NOP => {
             }
             Instruction::JMP => {
-                // Begin to construct 16-bit value to be stored in PC.
-                // Denote the two component bytes as highbyte and lowbyte
-                let (lowbyte_address, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
-                let low_byte = self.read(lowbyte_address);
+                let pointer = arg.unwrap();
+                self.cpu.pc = match addr_mode {
+                    AddressingMode::Absolute => pointer,
+                    AddressingMode::Indirect => {
+                        let low_byte = self.read(pointer) as u16;
 
-                // Emulate NES CPU bug. When addressing a 16-bit value (spanning two byte memory
-                // addresses) that crosses a page, the low byte is read from the wrong address.
-                // Specifically, the low byte is read from the 0th address of the first page.
-                // For example, reading from high byte 0x03FF will read form low byte 0x0300, not
-                // 0x0400.
-                let highbyte_address = 
-                    if addr_mode == AddressingMode::Indirect && crate::addressing::address_crosses_page(lowbyte_address) {
-                        lowbyte_address & 0xFF00
-                    }  else {
-                        lowbyte_address.wrapping_add(1)
-                    };
+                        // Emulate the 6502 indirect-JMP page-wrap bug: when the pointer's low
+                        // byte is 0xFF, the high byte is fetched from the start of the same page
+                        // instead of the next one (e.g. ($03FF) reads high from $0300, not $0400).
+                        let highbyte_address =
+                            if crate::addressing::address_crosses_page(pointer) {
+                                pointer & 0xFF00
+                            } else {
+                                pointer.wrapping_add(1)
+                            };
 
-                let high_byte = self.read(highbyte_address);
-                self.cpu.pc = ((high_byte as u16) << 8) & (low_byte as u16);
+                        let high_byte = self.read(highbyte_address) as u16;
+                        (high_byte << 8) | low_byte
+                    }
+                    _ => panic!("Invalid addressing mode for JMP"),
+                };
             }
             Instruction::JSR => {
-                self.stack_push(((self.cpu.pc + 2) >> 8) as u8); // Push high byte
-                self.stack_push((self.cpu.pc + 2) as u8); // Push low byte
+                let target = self.cpu.pc.wrapping_sub(1);
+                dbg!(target);
+                self.stack_push((target >> 8) as u8); // Push high byte
+                self.stack_push(target as u8); // Push low byte
 
-                let addr = arg.unwrap();
-                self.cpu.pc = self.read_u16(addr);
+                self.cpu.pc = arg.unwrap();
             }
             Instruction::RTS => {
                 let low = self.stack_pull();
                 let high = self.stack_pull();
-                self.cpu.pc = (((high as u16) << 8) & (low as u16)).wrapping_add(1);
+                self.cpu.pc = (((high as u16) << 8) | (low as u16)).wrapping_add(1);
+               dbg!(self.cpu.pc);
             }
             Instruction::BRK => {
                 let value = self.cpu.pc;
@@ -292,7 +295,9 @@ impl NES {
             }
             Instruction::RTI => {
                let flags = self.stack_pull();
-               self.cpu.pc = ((self.stack_pull() as u16) << 8) & (self.stack_pull() as u16);
+               let low = self.stack_pull() as u16;
+               let high = self.stack_pull() as u16;
+               self.cpu.pc = (high << 8) | low;
 
                self.cpu.set_flag(CPUFlags::CARRY,       (flags & (1 << 0)) != 0);
                self.cpu.set_flag(CPUFlags::ZERO,        (flags & (1 << 1)) != 0);

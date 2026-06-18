@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut nes = NES::new(&nes_data.prg_rom);
     loop {
         nes.tick();
-        sleep(Duration::from_millis(200));
-    }
+    } 
+
     Ok(())
 }
