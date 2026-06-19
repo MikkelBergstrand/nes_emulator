@@ -1,12 +1,13 @@
 
 use std::sync::Arc;
-use crate::texture;
+use crate::{texture};
+use crate::nes::NES;
 use crate::{vertex::{INDICES, VERTICES, Vertex}};
 
-use image::{DynamicImage, ImageFormat};
+use image::{DynamicImage};
 use wgpu::util::DeviceExt;
 use winit::{
-    application::ApplicationHandler, event::*, event_loop::{self, ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
+    application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -14,8 +15,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::EventLoopExtWebSys;
 
-const RESOLUTION: (u32, u32) = (320, 240);
-
+const RESOLUTION: (usize, usize) = (256, 240);
 
 // This will store the state of our game
 pub struct State {
@@ -32,7 +32,9 @@ pub struct State {
     window: Arc<Window>,
 	diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
-    test: u32, 
+
+    nes: NES,
+    texture_data: Vec<u8>,
 }
 
 impl State {
@@ -94,11 +96,8 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
-        const SIZE: (u32, u32) = (320, 240);
-        let mut pixels: Vec<u8> = vec![0u8; (SIZE.0 * SIZE.1 * 4) as usize]; 
-        pixels[0] = 255;
-
-        let img = DynamicImage::ImageRgba8(image::ImageBuffer::from_raw(SIZE.0, SIZE.1, pixels).unwrap());
+        let texture_data = vec![0u8; RESOLUTION.0*RESOLUTION.1*4];
+        let img = DynamicImage::ImageRgba8(image::ImageBuffer::from_raw(RESOLUTION.0 as u32, RESOLUTION.1 as u32, texture_data.clone()).unwrap());
 
         let diffuse_texture = texture::Texture::from_image(&device, &queue, &img, Some("screen_quad")).unwrap();
 		let texture_bind_group_layout =
@@ -232,7 +231,8 @@ impl State {
             window,
             diffuse_bind_group,
             diffuse_texture,
-            test: 0,
+            texture_data,
+            nes: NES::from_args(),
         })
     }
 
@@ -253,17 +253,15 @@ impl State {
     }
 
     fn update(&mut self) {
-
+        for i in 1..1000 {
+            self.nes.tick();
+        }
+        self.texture_data = self.nes.get_image_bytes().to_vec();
     }
     
     pub fn render(&mut self) -> anyhow::Result<()> {
         self.window.request_redraw();
         
-        // Update pixel data
-        let mut pixels: Vec<u8> = vec![0u8; (320 * 240 * 4) as usize];
-        pixels[self.test as usize] = 250; // Test
-        self.test += 1;
-                                 // s
 
         // Update texture with new pixel data 
         self.queue.write_texture(
@@ -273,13 +271,13 @@ impl State {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &pixels,
+            &self.texture_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(320 * 4),
-                rows_per_image: Some(240),
+                bytes_per_row: Some(RESOLUTION.0  as u32 * 4),
+                rows_per_image: Some(RESOLUTION.1 as u32),
             },
-            wgpu::Extent3d { width: 320, height: 240, depth_or_array_layers: 1 },
+            wgpu::Extent3d { width: RESOLUTION.0 as u32, height: RESOLUTION.1 as u32, depth_or_array_layers: 1 },
         );
 
         if !self.is_surface_configured {
@@ -472,6 +470,7 @@ impl ApplicationHandler<State> for App {
 }
 
 pub fn run() -> anyhow::Result<()> {
+    dbg!("LOL");
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();

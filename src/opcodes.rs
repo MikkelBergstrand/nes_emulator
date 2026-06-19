@@ -118,7 +118,7 @@ impl InstructionData {
         op!(data, 0xF0, Relative, BEQ, 2, 2);
 
         //BMI
-        op!(data, 0x30, Relative, BIT, 2, 2);
+        op!(data, 0x30, Relative, BMI, 2, 2);
 
         //BNE
         op!(data, 0xD0, Relative, BNE, 2, 2);

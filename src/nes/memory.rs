@@ -11,7 +11,6 @@ impl NES {
     pub fn write_addr(&mut self, addr: u16, value: u8) {
 
         let target = self.resolve_mmap(addr);
-        println!("Writing to {:04x}, {:?} {:02x}", addr, target, value);
         match target {
             Target::RAM(addr) => { self.ram[addr] = value; }
             Target::PPU(addr) => { self.ppu.write(addr, value); }
@@ -31,7 +30,6 @@ impl NES {
             Target::Unspecified => { 0 }
         };
 
-        println!("Reading from {:04x}, {:?} = {:02x}", addr, target, ret);
         ret
     }
 

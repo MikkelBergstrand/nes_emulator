@@ -12,9 +12,6 @@ use crate::ppu::pattern_table;
 pub fn pattern_tables_to_bytes(chr_rom: &[u8]) -> (Vec<u8>, usize, usize) {
     let pattern_table_length = 0x1000 as usize;
     let num_pattern_tables = chr_rom.len() / pattern_table_length;
-    dbg!(num_pattern_tables);
-    dbg!(chr_rom.len());
-    dbg!(0x1000);
     let num_tiles = pattern_table_length / 16; // 16 bytes per 8x8 tile
 
     // Store RGB values per pixel (x3)

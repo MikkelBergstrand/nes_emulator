@@ -13,7 +13,6 @@ impl NES {
 
             let target = self.cpu.pc.wrapping_add(offset as i16 as u16);
 
-            println!("Branch to {:04X} taken!", target);
             let crossed_page = (self.cpu.pc & 0xFF00) != (target & 0xFF00);
             self.cpu.pc = target;
 
@@ -72,7 +71,7 @@ impl NES {
 
     pub fn tick(&mut self) {
         if self.ppu.pending_nmi() {
-            println!("NMI processed");
+            println!("Begin NMI");
             self.process_nmi();
             self.ppu.clear_nmi();
         }
@@ -81,7 +80,6 @@ impl NES {
         for _ in 0..3 {
             self.ppu.tick();
         }
-
     }
 
     fn process_nmi(&mut self) {
@@ -110,7 +108,9 @@ impl NES {
             _ => panic!("Invalid number of bytes for opcode.")
         };
 
-        println!("{}", instruction_data.to_string(arg));
+        if !matches!(instruction_data.instruction, Instruction::JMP) {
+            println!("{}", instruction_data.to_string(arg));
+        }
 
         // advance program counter
         self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
@@ -297,7 +297,6 @@ impl NES {
             }
             Instruction::JSR => {
                 let target = self.cpu.pc.wrapping_sub(1);
-                dbg!(target);
                 self.stack_push((target >> 8) as u8); // Push high byte
                 self.stack_push(target as u8); // Push low byte
 
@@ -307,7 +306,6 @@ impl NES {
                 let low = self.stack_pull();
                 let high = self.stack_pull();
                 self.cpu.pc = (((high as u16) << 8) | (low as u16)).wrapping_add(1);
-               dbg!(self.cpu.pc);
             }
             Instruction::BRK => {
                 let value = self.cpu.pc;

@@ -1,9 +1,7 @@
 use core::fmt;
 use std::{fs, usize};
 
-use crate::nes::NES;
 use std::error::Error;
-
 
 #[derive(Debug)]
 enum NESFileFormat {
@@ -20,34 +18,35 @@ enum TimingMode {
 }
 
 #[derive(Debug)]
-struct NES2Header {
-    horizontal_nametable_arrangement: bool,
-    nvm_present: bool,
-    trainer: bool,
-    alt_nametable_layout: bool,
-    console_type: ConsoleType,
-    mapper: u16,  
-    submapper: u8,
-    prg_rom_size: u16, 
-    chr_rom_size: u16,
-    prg_ram_size: u16,
-    prg_nvram_size: u16,
-    chr_ram_size: u16,
-    chr_nvram_size: u16,
-    timing_mode: TimingMode,
-    default_expansion_device: u8,
-    misc_roms: u8,
+pub struct NES2Header {
+    pub nametable_arrangement: NametableArrangement,
+    pub nvm_present: bool,
+    pub trainer: bool,
+    pub alt_nametable_layout: bool,
+    pub console_type: ConsoleType,
+    pub mapper: u16,  
+    pub submapper: u8,
+    pub prg_rom_size: u16, 
+    pub chr_rom_size: u16,
+    pub prg_ram_size: u16,
+    pub prg_nvram_size: u16,
+    pub chr_ram_size: u16,
+    pub chr_nvram_size: u16,
+    pub timing_mode: TimingMode,
+    pub default_expansion_device: u8,
+    pub misc_roms: u8,
 }
 
 pub struct NESData {
     pub prg_rom: Vec<u8>,
     pub chr_rom: Vec<u8>,
+    pub header: NES2Header,
 }
 
 #[derive(Debug)]
-enum NametableArrangement {
-    Normal,
-    Mirrored
+pub enum NametableArrangement {
+    Vertical,
+    Horizontal
 }
 
 #[derive(Debug)]
@@ -115,9 +114,10 @@ pub fn read(filename: &str) -> Result<NESData, RomError> {
     // Units of 8kB
     let chr_rom_size = nes2_header.chr_rom_size as usize * (1 << 13);
     let chr_rom_data = bytes.get(offset..(offset+chr_rom_size)).ok_or(RomError::UnrecognizedFormat)?;
-    offset += chr_rom_size;
+    // offset += chr_rom_size;
 
     Ok(NESData {
+        header: nes2_header,
         prg_rom: prg_rom_data.to_vec(),
         chr_rom: chr_rom_data.to_vec(),
     })
@@ -158,7 +158,7 @@ pub fn parse_nes2_header(bytes: &[u8]) -> NES2Header {
     NES2Header {
         prg_rom_size: (bytes[4] as u16) | (((bytes[9] as u16) & 0x0F) << 8),
         chr_rom_size: (bytes[5] as u16) | (((bytes[9] as u16) & 0xF0) << 4),
-        horizontal_nametable_arrangement: bit_to_bool(bytes[6], 0),
+        nametable_arrangement: if bit_to_bool(bytes[6], 0) { NametableArrangement::Horizontal} else { NametableArrangement::Vertical },
         alt_nametable_layout: bit_to_bool(bytes[6], 3),
         trainer: bit_to_bool(bytes[6], 2),
         nvm_present: bit_to_bool(bytes[6], 1),
