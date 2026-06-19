@@ -1,4 +1,0 @@
-Pallette - 4 colors
-Colors - 0x3F00-0x3F1F (Color bytes)
-Color byte: 6-bit color value, referencing one of 64 PPU colors
-Each sprite has 4 pallettes
