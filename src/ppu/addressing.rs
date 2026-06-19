@@ -22,7 +22,7 @@ impl PPUMemoryMap {
 
     pub fn write(&mut self, addr: u16, data: u8) {
         let addr = addr & 0x3FFF;
-        println!("Writing to VRAM {:04X}", addr);
+        //println!("Writing to VRAM {:04X}", addr);
         match addr {
             0x0000..0x2000 => { println!("Writing to ROM"); },
             0x2000..=0x2FFF => { self.vram[self.nametable_addr(addr) as usize] = data; },
@@ -32,7 +32,7 @@ impl PPUMemoryMap {
             _ => ()
         };
 
-        println!("Write {:02X} to {:04X}", data, addr);
+        //println!("Write {:02X} to {:04X}", data, addr);
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -44,7 +44,7 @@ impl PPUMemoryMap {
             0x3F00..=0x3FFF => self.pallette_ram[(addr & 0x001F) as usize],
             _ => { panic!("Bad read"); }
         };
-        println!("Read {:02X} from {:04X}", ret, addr);
+        //println!("Read {:02X} from {:04X}", ret, addr);
         ret
     }
 

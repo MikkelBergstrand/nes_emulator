@@ -2,7 +2,7 @@ pub mod pattern_table;
 mod addressing;
 
 use core::panic;
-use std::{process::exit, usize};
+use std::{usize};
 
 use image::Rgb;
 
@@ -136,6 +136,8 @@ impl PPU {
             }
             _ => panic!("Bad PPU address")
         }
+
+        println!("Writing to {} = {}", addr, data);
     }
 
     pub fn read(&mut self, addr: u8) -> u8 {
@@ -158,7 +160,7 @@ impl PPU {
             7 => { self.data }
             _ => panic!("Bad PPU address")
         };
-        if addr != 2 && addr != 7 {
+        if addr != 2 {
             println!("Reading from {} = {}", addr, ret);
         }
         ret
@@ -252,47 +254,53 @@ impl PPU {
         } else {
             0x3F00 | ((attr as u16) << 2) | (bg_pixel as u16)
         };
-        let color_index = (self.addressor.read(pallette_addr) & 0x3F) as usize;
+        let mut color_index = (self.addressor.read(pallette_addr) & 0x3F) as usize;
+
+        if self.greyscale() {
+            color_index = color_index & 0x30;
+        }
         let rgb = self.color_data[color_index];
         
         let output_pixel = (ypos as usize)*IMG_WIDTH + (xpos as usize);
         self.image_out[BYTES_PER_PIXEL*output_pixel+0] = rgb[0];
         self.image_out[BYTES_PER_PIXEL*output_pixel+1] = rgb[1];
         self.image_out[BYTES_PER_PIXEL*output_pixel+2] = rgb[2];
-        //println!("Modifying image out {:?} {} {}", rgb, addr, pixel);
     }
 
     pub fn tick(&mut self) {
-        if self.scanline == 1 {
-            self.status |= 0x40; //DEBUG: set sprite 0 flag manually
-        }
-
-        if self.scanline == 261 && (280..=304).contains(&self.cycle){
-            // vert(v) = vert(t);
-            self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
-        }
-
-        if (0..=239).contains(&self.scanline) || self.scanline == 261 {
-            if (2..=257).contains(&self.cycle) || (321..=337).contains(&self.cycle) {
-                self.update_shifters();
+        if !self.enable_sprites() && !self.enable_background() {
+            // Only render if mask allows it
+            if self.scanline == 1 && self.cycle == 1 {
+                self.status |= 0x40; //DEBUG: set sprite 0 flag manually
             }
 
-            if (2..=257).contains(&self.cycle) || (321..=337).contains(&self.cycle) {
-                if (self.cycle - 1) % 8 == 0 { self.load_shifters(); }
-                if (self.cycle - 1) % 8 == 7 { self.inc_hori(); }
+            if self.scanline == 261 && (280..=304).contains(&self.cycle){
+                // vert(v) = vert(t);
+                self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
             }
 
-            if self.cycle == 256 {
-                self.inc_vert();
-            }
+            if (0..=239).contains(&self.scanline) || self.scanline == 261 {
+                if (2..=257).contains(&self.cycle) || (321..=337).contains(&self.cycle) {
+                    self.update_shifters();
+                }
 
-            if self.cycle == 257 { 
-                //horiz(v) = horiz(t);
-                self.v = (self.v & !0x041F) | (self.t & 0x041F); 
-            }
+                if (2..=257).contains(&self.cycle) || (321..=337).contains(&self.cycle) {
+                    if (self.cycle - 1) % 8 == 0 { self.load_shifters(); }
+                    if (self.cycle - 1) % 8 == 7 { self.inc_hori(); }
+                }
 
-            if (1..=256).contains(&self.cycle) && self.scanline < 240 {
-                self.draw_tile(self.cycle-1, self.scanline);
+                if self.cycle == 256 {
+                    self.inc_vert();
+                }
+
+                if self.cycle == 257 { 
+                    //horiz(v) = horiz(t);
+                    self.v = (self.v & !0x041F) | (self.t & 0x041F); 
+                }
+
+                if (1..=256).contains(&self.cycle) && self.scanline < 240 {
+                    self.draw_tile(self.cycle-1, self.scanline);
+                }
             }
         }
 
@@ -302,7 +310,6 @@ impl PPU {
             self.status |= 0x80;
             // Must have NMI enabled in PPUCTRL
             if self.vblank_nmi_enable() {
-
                 // Only trigger NMI on rising edge of STATUS bit.
                 if !self.nmi_lineout {
                     self.pending_nmi = true;
@@ -319,18 +326,31 @@ impl PPU {
             if self.scanline > 261 {
                 self.scanline = 0;
             }
-
         }
     }
 
     pub fn get_image_bytes(&self) -> &Vec<u8> { return &self.image_out; }
 
+    // **
+    // CTRL Flags
+    // **
     fn base_nametable_addr(&self) -> u8 { self.ctrl & 0x03 }
-
     fn vram_increment_bit(&self) -> bool { (self.ctrl & (1 << 2)) != 0 }
     fn sprite_pattern_table_base(&self) -> u16 { if (self.ctrl & (1 << 3)) != 0 { 0x1000 } else { 0 }}
     fn base_background_pattern_address(&self) -> u16   { if (self.ctrl & (1 << 4)) != 0 { 0x1000 } else { 0 }}
     fn sprite_size(&self) -> (usize, usize)   { if (self.ctrl & (1 << 5)) != 0 { (8, 8) } else { (8, 16) }}
     fn master_slave_select(&self) -> bool   { (self.ctrl & (1 << 6)) != 0 }
     fn vblank_nmi_enable(&self) -> bool   { (self.ctrl & (1 << 7)) != 0 }
+    
+    // **
+    // MASK flags
+    // **
+    fn greyscale(&self) -> bool              { return (self.mask & 0x1) != 0; }
+    fn show_bg_leftmost_screen(&self) -> bool   { return (self.mask & 0x2) != 0; }
+    fn show_sprites_leftmost_screen(&self) -> bool  { return (self.mask & 0x4) != 0; }
+    fn enable_background(&self) -> bool         { return (self.mask & 0x8) != 0; }
+    fn enable_sprites(&self) -> bool         { return (self.mask & 0x10) != 0; }
+    fn emphasize_red(&self) -> bool         { return (self.mask & 0x20) != 0; }
+    fn emphasize_green(&self) -> bool         { return (self.mask & 0x40) != 0; }
+    fn emphasize_blue(&self) -> bool         { return (self.mask & 0x80) != 0; }
 }
