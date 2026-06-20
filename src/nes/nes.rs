@@ -1,5 +1,5 @@
 use crate::addressing::AddressingMode;
-use crate::instruction::Instruction;
+use crate::instruction::{self, Instruction};
 use crate::cpu::{CPUFlags};
 use super::NES;
 
@@ -108,9 +108,11 @@ impl NES {
             _ => panic!("Invalid number of bytes for opcode.")
         };
 
+
         if !matches!(instruction_data.instruction, Instruction::JMP) {
             println!("{}", instruction_data.to_string(arg));
         }
+
 
         // advance program counter
         self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
@@ -233,7 +235,7 @@ impl NES {
                 self.cpu.set_zn(self.cpu.y);
             }
             Instruction::PHP => {
-                self.write_addr(0x100 + (self.cpu.s as u16), self.cpu.flags.bits() & (1 << 4) & (1 << 5));
+                self.write_addr(0x100 + (self.cpu.s as u16), self.cpu.flags.bits() | (1 << 4) | (1 << 5));
                 self.cpu.s = self.cpu.s.wrapping_sub(1);
             }
             Instruction::PLP => {
@@ -332,12 +334,22 @@ impl NES {
             Instruction::EOR => { self.bit_operation(addr_mode, arg, |x, y| x ^ y) }
             Instruction::BIT => {
                 let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
+                self.cpu.set_flag(CPUFlags::ZERO, (self.cpu.acc & value) != 0);
+                self.cpu.set_flag(CPUFlags::NEGATIVE, (value & 0x80) != 0);
                 self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
-                self.cpu.set_zn(value);
             }
             Instruction::ERR => panic!("unimplemented instruction {}", instruction_data.instruction)
         }
+    }
 
-
+    pub fn oam_dma(&mut self, data: u8) {
+        let oamaddr = self.read(0x2003);
+        let base_addr = oamaddr as u16 + 0x100 * data as u16;
+        
+        let mut data: Vec<u8> = vec![0u8; 256];
+        for i in 0..256 {
+            data[i] = self.read(base_addr.wrapping_add(i as u16));
+        }
+        self.ppu.write_oam_dma(&data, oamaddr);
     }
 }

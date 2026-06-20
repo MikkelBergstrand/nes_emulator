@@ -242,7 +242,7 @@ impl State {
     }
 
     fn update(&mut self) {
-        for i in 1..1000 {
+        while !self.nes.image_ready() {
             self.nes.tick();
         }
         self.texture_data = self.nes.get_image_bytes().to_vec();

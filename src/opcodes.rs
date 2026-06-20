@@ -32,7 +32,7 @@ impl InstructionData {
             AddressingMode::AbsoluteX => format!("${:04X},X", arg.unwrap()),
             AddressingMode::AbsoluteY => format!("${:04X},Y", arg.unwrap()),
             AddressingMode::Indirect  => format!("(${:04X})", arg.unwrap()),
-            AddressingMode::IndirectX => format!("(${:04X}),X)", arg.unwrap()),
+            AddressingMode::IndirectX => format!("(${:04X}),X", arg.unwrap()),
             AddressingMode::IndirectY => format!("(${:04X}),Y", arg.unwrap()),
             AddressingMode::ZeroPage =>  format!("${:02X}", arg.unwrap()),
             AddressingMode::ZeroPageX => format!("${:02X},X", arg.unwrap()),

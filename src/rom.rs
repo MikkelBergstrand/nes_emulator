@@ -1,12 +1,12 @@
 use std::usize;
 
 pub struct ROM {
-    data: [u8; 1 << 15],
+    data: Vec<u8>,
 }
 
 impl ROM {
     pub fn new(data: &[u8]) -> Self {
-        ROM { data: data.try_into().unwrap() } 
+        ROM { data: data.to_vec() } 
     }
 
     pub fn read(&self, addr: u16) -> u8 { 

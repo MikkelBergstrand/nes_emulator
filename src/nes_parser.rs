@@ -97,9 +97,9 @@ pub fn read(filename: &str) -> Result<NESData, RomError> {
     }
 
 
-    if bytes[7] & 0x0C != 0x08 {
-        return Err(RomError::UnrecognizedFormat);
-    }
+    //if bytes[7] & 0x0C != 0x08 {
+    //    return Err(RomError::UnrecognizedFormat);
+    //}
 
     let nes2_header = parse_nes2_header(&bytes);
     dbg!("{}", &nes2_header);

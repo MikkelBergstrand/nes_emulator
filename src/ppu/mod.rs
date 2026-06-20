@@ -1,30 +1,30 @@
 pub mod pattern_table;
 mod addressing;
 mod rendering;
+mod oam;
+mod sprite_buffer_memory;
 
 use core::panic;
 use std::{usize};
 
+use bytemuck::offset_of;
 use image::Rgb;
 
-use crate::nes_parser::NametableArrangement;
+use crate::{nes_parser::NametableArrangement, ppu::{oam::OAM, sprite_buffer_memory::BufferSprite}};
 
 
 pub struct PPU {
     color_data: [Rgb<u8>; 64],
-
     ctrl: u8,
     mask: u8,
     status: u8,
     oam_addr: u8,
-    oam_data: u8,
     xscroll: u8,
     yscroll: u8,
     addr: u8,
     data: u8,
-    oam_dma: u8,
     addressor: addressing::PPUMemoryMap,
-
+    oam: OAM,
     // Internal registers
     v: u16, // Current VRAM address (15 bits)
     t: u16, // Temporary VRAM address (15 bits)
@@ -36,6 +36,8 @@ pub struct PPU {
 
     pattern_data_lb: u16,
     pattern_data_hb: u16,
+
+    sprite_buffer_data: [BufferSprite; 8],
     
     attribute_data_lb: u16,
     attribute_data_hb: u16,
@@ -59,9 +61,7 @@ impl PPU {
             mask: 0,
             status: 0x80,
             oam_addr: 0,
-            oam_data: 0,
             addr: 0,
-            oam_dma: 0,
             ctrl: 0,
             xscroll: 0,
             yscroll: 0,
@@ -74,9 +74,12 @@ impl PPU {
             x: 0,
             w: false,
             color_data: color_data.try_into().unwrap(),
+            oam: OAM::new(),
             addressor: addressing::PPUMemoryMap::new(chr_data, nametable_arrangement),
             image_out: vec![0u8; rendering::IMG_SIZE],
             image_ready: true,
+
+            sprite_buffer_data: [BufferSprite::new(); 8],
 
             pattern_data_lb: 0,
             pattern_data_hb: 0,
@@ -89,14 +92,14 @@ impl PPU {
         match addr {
             0 => { // PPUCTRL
                 self.ctrl = data; 
-                self.t = (self.t & !0x0C00) | (data as u16 & 0x3) << 10;
+                self.t = (self.t & !0x0C00) | ((data as u16 & 0x3) << 10);
             }
             1 => { self.mask = data; }
             2 => { self.status = data; }
             3 => { self.oam_addr = data; }
-            4 => { 
+            4 => {  //OAMADDR
+                self.oam.sprites[self.oam_addr as usize] = data;
                 self.oam_addr = self.oam_addr.wrapping_add(1);
-                self.oam_data = data; 
             }
             5 => {  //PPUSCROLL
                 // Writes to scroll changes xscroll and yscroll
@@ -124,7 +127,7 @@ impl PPU {
                     self.t = (self.t & 0x00FF) | (((data & 0x3F) as u16) << 8);
                 }
 
-                self.t &= !(1 << 15);
+                self.t &= !(1 << 14);
                 self.w = !self.w;
             }
             7 => {  //PPUDATA
@@ -137,7 +140,12 @@ impl PPU {
             _ => panic!("Bad PPU address")
         }
 
-        println!("Writing to {} = {}", addr, data);
+        //println!("Writing to {:04X} = {:02X}", addr, data);
+    }
+
+    //Writing to address 0x4014 is OAMDMA
+    pub fn write_oam_dma(&mut self, data: &[u8], offset: u8) { 
+        self.oam.from_dma(offset, &data);
     }
 
     pub fn read(&mut self, addr: u8) -> u8 {
@@ -150,36 +158,39 @@ impl PPU {
                 self.w = false;
                 let temp = self.status;
                 self.status &= !(0x80); //Unset vblank flag
-
                 temp
             }
             3 => { self.oam_addr }
-            4 => { self.oam_data }
+            4 => { self.oam.sprites[self.oam_addr as usize] }
             5 => { self.xscroll }
             6 => { self.addr }
-            7 => { self.data }
+            7 => { 
+                self.v = self.v.wrapping_add(if self.vram_increment_bit() { 32 } else { 1 }) & 0x7FFF;
+                self.data
+            }
             _ => panic!("Bad PPU address")
         };
-        if addr != 2 {
-            println!("Reading from {} = {}", addr, ret);
-        }
+        //println!("Reading from {} = {}", addr, ret);
         ret
     }
 
     pub fn pending_nmi(&self) -> bool { self.pending_nmi }
     pub fn clear_nmi(&mut self) { self.pending_nmi = false; self.nmi_lineout = false; }
 
-
-    pub fn get_image_bytes(&self) -> &Vec<u8> { return &self.image_out; }
+    pub fn get_image_bytes(&mut self) -> &Vec<u8> { 
+        self.image_ready = false; return &self.image_out;
+    }
 
     // **
     // CTRL Flags
     // **
-    fn base_nametable_addr(&self) -> u8 { self.ctrl & 0x03 }
+    fn base_nametable_addr(&self) -> u8 {
+        self.ctrl & 0x03 
+    }
     fn vram_increment_bit(&self) -> bool { (self.ctrl & (1 << 2)) != 0 }
     fn sprite_pattern_table_base(&self) -> u16 { if (self.ctrl & (1 << 3)) != 0 { 0x1000 } else { 0 }}
     fn base_background_pattern_address(&self) -> u16   { if (self.ctrl & (1 << 4)) != 0 { 0x1000 } else { 0 }}
-    fn sprite_size(&self) -> (usize, usize)   { if (self.ctrl & (1 << 5)) != 0 { (8, 8) } else { (8, 16) }}
+    fn sprite_size(&self) -> (usize, usize)   { if (self.ctrl & (1 << 5)) != 0 { (8, 16) } else { (8, 8) }}
     fn master_slave_select(&self) -> bool   { (self.ctrl & (1 << 6)) != 0 }
     fn vblank_nmi_enable(&self) -> bool   { (self.ctrl & (1 << 7)) != 0 }
     
@@ -194,4 +205,7 @@ impl PPU {
     fn emphasize_red(&self) -> bool         { return (self.mask & 0x20) != 0; }
     fn emphasize_green(&self) -> bool         { return (self.mask & 0x40) != 0; }
     fn emphasize_blue(&self) -> bool         { return (self.mask & 0x80) != 0; }
+
+
+    pub fn image_ready(&self) -> bool { return self.image_ready; }
 }

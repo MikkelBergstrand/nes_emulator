@@ -53,5 +53,7 @@ impl NES {
        NES::new(nes_data, &color_data)
     }
 
-    pub fn get_image_bytes(&self) -> &Vec<u8> { self.ppu.get_image_bytes() }
+    pub fn get_image_bytes(&mut self) -> &Vec<u8> { self.ppu.get_image_bytes() }
+
+    pub fn image_ready(&self) -> bool { return self.ppu.image_ready(); }
 }
