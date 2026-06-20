@@ -22,9 +22,10 @@ impl NES {
 
     fn compare_reg(&mut self, mode: AddressingMode, addr: Option<u16>, register: u8) {
         let (value, page_crossed) = self.resolve_value_from_addressmode(mode, addr);
+        let diff = register.wrapping_sub(value);
         self.cpu.set_flag(CPUFlags::CARRY, register >= value);
         self.cpu.set_flag(CPUFlags::ZERO, register == value);
-        self.cpu.set_flag(CPUFlags::NEGATIVE, (value & 0x80) != 0);
+        self.cpu.set_flag(CPUFlags::NEGATIVE, (diff & 0x80) != 0);
 
         if page_crossed { self.cycles += 1; }
     }
@@ -112,7 +113,6 @@ impl NES {
         if !matches!(instruction_data.instruction, Instruction::JMP) {
             println!("{}", instruction_data.to_string(arg));
         }
-
 
         // advance program counter
         self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
@@ -334,7 +334,7 @@ impl NES {
             Instruction::EOR => { self.bit_operation(addr_mode, arg, |x, y| x ^ y) }
             Instruction::BIT => {
                 let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
-                self.cpu.set_flag(CPUFlags::ZERO, (self.cpu.acc & value) != 0);
+                self.cpu.set_flag(CPUFlags::ZERO, (self.cpu.acc & value) == 0);
                 self.cpu.set_flag(CPUFlags::NEGATIVE, (value & 0x80) != 0);
                 self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
             }

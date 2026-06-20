@@ -1,5 +1,3 @@
-use core::panic;
-
 use super::NES;
 
 #[derive(Debug)]
@@ -9,7 +7,6 @@ enum Target {
 
 impl NES {
     pub fn write_addr(&mut self, addr: u16, value: u8) {
-
         let target = self.resolve_mmap(addr);
         match target {
             Target::RAM(addr) => { self.ram[addr] = value; }

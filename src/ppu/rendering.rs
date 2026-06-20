@@ -117,14 +117,11 @@ impl PPU {
                 pattern_hi = pattern_hi.reverse_bits();
             }
 
-            let sprite_pallette_addr = 0x3F10 | (pallette_idx as u16);
-            let sprite_pallette = self.addressor.read(sprite_pallette_addr);
-
             self.sprite_buffer_data[i] = BufferSprite{
                 x:  self.oam.temp_sprite_info[i].x_pos,
                 pattern_lo: pattern_lo, 
                 pattern_hi: pattern_hi, 
-                pallette: sprite_pallette,
+                pallette: pallette_idx,
                 priority: priority as u8,
                 is_sprite_0: sprite.is_sprite_0,
             };
@@ -151,25 +148,23 @@ impl PPU {
         for i in 0..8 {
             if self.sprite_buffer_data[i].x != 0 { continue; }
 
-            let s1 = (self.sprite_buffer_data[i].pattern_hi & 0x80 != 0) as u8;
-            let s0 = (self.sprite_buffer_data[i].pattern_lo & 0x80 != 0) as u8;
-            let s = (s1 << 1) | s0;
+            if sprite_pix == 0 {
+                let s1 = (self.sprite_buffer_data[i].pattern_hi & 0x80 != 0) as u8;
+                let s0 = (self.sprite_buffer_data[i].pattern_lo & 0x80 != 0) as u8;
+                let s = (s1 << 1) | s0;
 
-            if s == 0 {
-                continue;
+                sprite_pix = s;
+                sprite_priority = self.sprite_buffer_data[i].priority != 0;
+                sprite_pallette = self.sprite_buffer_data[i].pallette;
             }
-
-            sprite_pix = s;
-            sprite_priority = self.sprite_buffer_data[i].priority != 0;
-            sprite_pallette = self.sprite_buffer_data[i].pallette;
 
             // Set the sprite 0 hit flag if this sprite is sprite 0,
             // and both the background and sprite pixel is opaque (non-zero)
             if self.sprite_buffer_data[i].is_sprite_0 && bg_pixel != 0 {
-                println!("Set sprite 0");
                 self.status |= 0x40; 
             }
         }
+
 
         // MUX
         let pallette_addr = match (bg_pixel, sprite_pix, sprite_priority) {
