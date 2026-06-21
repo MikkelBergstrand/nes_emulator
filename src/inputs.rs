@@ -28,7 +28,6 @@ impl Inputs {
     }
 
     pub fn set(&mut self, t: InputFlag, v: bool) {
-        println!("Set {:?} = {}", t, v);
         self.inputs.set(t, v);
     }
     

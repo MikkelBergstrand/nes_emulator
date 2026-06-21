@@ -242,8 +242,8 @@ impl State {
             (KeyCode::Escape, true) => event_loop.exit(),
             (KeyCode::KeyX, v) => self.inputs.set(InputFlag::A, v),
             (KeyCode::KeyZ, v) => self.inputs.set(InputFlag::B, v),
-            (KeyCode::ArrowUp, v) => self.inputs.set(InputFlag::DOWN, v),
-            (KeyCode::ArrowDown, v) => self.inputs.set(InputFlag::UP, v),
+            (KeyCode::ArrowUp, v) => self.inputs.set(InputFlag::UP, v),
+            (KeyCode::ArrowDown, v) => self.inputs.set(InputFlag::DOWN, v),
             (KeyCode::ArrowLeft, v) => self.inputs.set(InputFlag::LEFT, v),
             (KeyCode::ArrowRight, v) => self.inputs.set(InputFlag::RIGHT, v),
             (KeyCode::Enter, v) => self.inputs.set(InputFlag::START, v),
@@ -423,7 +423,6 @@ impl ApplicationHandler<State> for App {
 }
 
 pub fn run() -> anyhow::Result<()> {
-    dbg!("LOL");
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
