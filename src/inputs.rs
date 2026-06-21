@@ -1,5 +1,3 @@
-use std::usize;
-
 use bitflags::bitflags;
 
 bitflags! {
@@ -31,10 +29,6 @@ impl Inputs {
         self.inputs.set(t, v);
     }
     
-    pub fn get(&mut self, t: InputFlag) -> bool {
-        self.inputs.contains(t)
-    }
-
     pub fn get_input_byte(&self) -> InputFlag  {
         self.inputs
     }

@@ -1,7 +1,5 @@
 use std::usize;
 
-use crate::ppu::pattern_table;
-
 // Returns the pattern table following the standard pattern table
 // layout. The pattern tables are laid out next to each other
 // horizontally, and each pattern table is a 16x16 grid of tiles.

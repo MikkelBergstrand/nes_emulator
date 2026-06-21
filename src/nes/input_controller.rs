@@ -19,7 +19,8 @@ impl InputController {
         self.inputs = state;
     }
 
-    pub fn read(&mut self, controller: u8) -> u8 {
+    // TODO: implement support for controller 2 
+    pub fn read(&mut self, _controller: u8) -> u8 {
         let ret = self.inputs & 1;
         if !self.strobe {
             self.inputs >>= 1;

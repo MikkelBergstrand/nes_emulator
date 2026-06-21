@@ -7,7 +7,6 @@ mod sprite_buffer_memory;
 use core::panic;
 use std::{usize};
 
-use bytemuck::offset_of;
 use image::Rgb;
 
 use crate::{nes_parser::NametableArrangement, ppu::{oam::OAM, sprite_buffer_memory::BufferSprite}};
@@ -193,27 +192,17 @@ impl PPU {
     // **
     // CTRL Flags
     // **
-    fn base_nametable_addr(&self) -> u8 {
-        self.ctrl & 0x03 
-    }
     fn vram_increment_bit(&self) -> bool { (self.ctrl & (1 << 2)) != 0 }
     fn sprite_pattern_table_base(&self) -> u16 { if (self.ctrl & (1 << 3)) != 0 { 0x1000 } else { 0 }}
     fn base_background_pattern_address(&self) -> u16   { if (self.ctrl & (1 << 4)) != 0 { 0x1000 } else { 0 }}
-    fn sprite_size(&self) -> (usize, usize)   { if (self.ctrl & (1 << 5)) != 0 { (8, 16) } else { (8, 8) }}
-    fn master_slave_select(&self) -> bool   { (self.ctrl & (1 << 6)) != 0 }
     fn vblank_nmi_enable(&self) -> bool   { (self.ctrl & (1 << 7)) != 0 }
     
     // **
     // MASK flags
     // **
-    fn greyscale(&self) -> bool              { return (self.mask & 0x1) != 0; }
-    fn show_bg_leftmost_screen(&self) -> bool   { return (self.mask & 0x2) != 0; }
-    fn show_sprites_leftmost_screen(&self) -> bool  { return (self.mask & 0x4) != 0; }
-    fn enable_background(&self) -> bool         { return (self.mask & 0x8) != 0; }
-    fn enable_sprites(&self) -> bool         { return (self.mask & 0x10) != 0; }
-    fn emphasize_red(&self) -> bool         { return (self.mask & 0x20) != 0; }
-    fn emphasize_green(&self) -> bool         { return (self.mask & 0x40) != 0; }
-    fn emphasize_blue(&self) -> bool         { return (self.mask & 0x80) != 0; }
+    fn greyscale(&self) -> bool         { return (self.mask & 0x01) != 0; }
+    fn enable_background(&self) -> bool { return (self.mask & 0x08) != 0; }
+    fn enable_sprites(&self) -> bool    { return (self.mask & 0x10) != 0; }
 
 
     pub fn image_ready(&self) -> bool { return self.image_ready; }

@@ -1,15 +1,6 @@
 use std::usize;
 
-
-#[derive(Debug)]
-pub struct Sprite {
-    y_pos: u8,
-    tile_index: u8,
-    attributes: u8,
-    x_pos: u8,
-}
-
-// Also referre to as "Secondary OAM" in NesDev
+// Also referred to as "Secondary OAM" in NesDev
 #[derive(Copy, Clone, Debug)]
 pub struct TempSpriteInfo {
     pub y_pos:  u8,
@@ -20,13 +11,22 @@ pub struct TempSpriteInfo {
 }
 
 impl TempSpriteInfo {
+    // Secondary RAM is cleared by setting all the values to 0xFF
     pub fn blank() -> Self {
         TempSpriteInfo { y_pos: 0xFF, tile_index: 0xFF, attributes: 0xFF, x_pos: 0xFF, is_sprite_0: false }
     }
 }
 
 pub struct OAM {
+    // Sprite data, usually set through OAMDMA.
+    // Room for 64 sprites, 4 bytes per sprite.
+    // Index 0 = y_pos
+    // Index 1 = tile_index
+    // Index 2 = attributes
+    // Index 3 = x_pos
     pub sprites: [u8; 64*4],
+
+    // Secondary OAM storage. Room for 8 sprites per scanline
     pub temp_sprite_info: [TempSpriteInfo; 8],
 }
 

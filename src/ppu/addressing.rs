@@ -4,7 +4,7 @@ use crate::nes_parser::NametableArrangement;
 
 pub struct PPUMemoryMap {
     chr_data: Vec<u8>, // Pattern table data
-    chr_bank: usize,   // Selected 8KB CHR bank (CNROM / mapper 3)
+    _chr_bank: usize,   // Selected 8KB CHR bank (CNROM / mapper 3)
     nametable_arrangement: NametableArrangement,
     vram: [u8; 2048],
     pallette_ram: [u8; 32],
@@ -26,7 +26,7 @@ impl PPUMemoryMap {
     pub fn new(chr_data: &[u8], nametable_arrangement: NametableArrangement) -> Self {
         PPUMemoryMap{
            chr_data: chr_data.to_vec(),
-           chr_bank: 0,
+           _chr_bank: 0,
            nametable_arrangement,
            vram: [0u8; 2048],
            pallette_ram: [0u8; 32],

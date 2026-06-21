@@ -1,6 +1,6 @@
 use crate::addressing::AddressingMode;
-use crate::instruction::{self, Instruction};
-use crate::cpu::{CPUFlags};
+use crate::instruction::Instruction;
+use crate::cpu::CPUFlags;
 use super::NES;
 
 impl NES {
@@ -182,7 +182,7 @@ impl NES {
             Instruction::CPX => { self.compare_reg(addr_mode, arg, self.cpu.x); }
             Instruction::CPY => { self.compare_reg(addr_mode, arg, self.cpu.y); }
             Instruction::DEC => { 
-                let (addr, page_crossed) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
                 let result = self.read(addr).wrapping_sub(1);
                 self.write_addr(addr, result);
                 self.cpu.set_zn(result);
@@ -196,7 +196,7 @@ impl NES {
                 self.cpu.set_zn(self.cpu.y);
             }
             Instruction::INC => { 
-                let (addr, page_crossed) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
+                let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
                 let result = self.read(addr).wrapping_add(1);
                 self.write_addr(addr, result);
 

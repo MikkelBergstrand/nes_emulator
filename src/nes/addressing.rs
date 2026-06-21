@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use super::NES;
 use crate::addressing::{AddressingMode, address_crosses_page};
 
@@ -42,7 +40,6 @@ impl NES {
                 let arg = arg.expect("Address mode requires an argument");
                 let (addr, extra_cycle) = self.resolve_address(mode, arg)
                     .unwrap_or_else(|| panic!("Invalid opcode, addr: {:?}. Cannot request address alongside addressing mode {:?}", arg, mode));
-
 
                 (self.read(addr), extra_cycle)
             }
