@@ -10,4 +10,4 @@ mod instruction;
 mod nes;
 mod nes_parser;
 mod inputs;
-mod app;
+pub mod app;
