@@ -22,7 +22,6 @@ pub struct PPU {
     xscroll: u8,
     yscroll: u8,
     addr: u8,
-    data: u8,
     addressor: addressing::PPUMemoryMap,
     oam: OAM,
     // Internal registers
@@ -33,6 +32,8 @@ pub struct PPU {
               //
     cycle: usize, // Rendering cycle
     scanline: usize,
+
+    ppu_read_buffer: u8, // R/W to PPUdata are buffered
 
     pattern_data_lb: u16,
     pattern_data_hb: u16,
@@ -57,7 +58,6 @@ pub struct PPU {
 impl PPU {
     pub fn new(chr_data: &[u8], nametable_arrangement: NametableArrangement, color_data: &[Rgb<u8>]) -> Self {
         Self {
-            data: 0,
             mask: 0,
             status: 0x80,
             oam_addr: 0,
@@ -78,6 +78,7 @@ impl PPU {
             addressor: addressing::PPUMemoryMap::new(chr_data, nametable_arrangement),
             image_out: vec![0u8; rendering::IMG_SIZE],
             image_ready: true,
+            ppu_read_buffer: 0,
 
             sprite_buffer_data: [BufferSprite::new(); 8],
 
@@ -95,7 +96,7 @@ impl PPU {
                 self.t = (self.t & !0x0C00) | ((data as u16 & 0x3) << 10);
             }
             1 => { self.mask = data; }
-            2 => { self.status = data; }
+            2 => {  }
             3 => { self.oam_addr = data; }
             4 => {  //OAMADDR
                 self.oam.sprites[self.oam_addr as usize] = data;
@@ -122,20 +123,20 @@ impl PPU {
 
                 if self.w {
                     self.t = (self.t & 0xFF00) | data as u16;
+                    self.t &= !(1 << 14);
                     self.v = self.t;
                 } else {
                     self.t = (self.t & 0x00FF) | (((data & 0x3F) as u16) << 8);
                 }
 
-                self.t &= !(1 << 14);
                 self.w = !self.w;
             }
             7 => {  //PPUDATA
                 // TODO: this behavior only models PPU r/ws when *not* rendering
                 // When rendering, the behavior is different, see wiki.
-                self.data = data; 
                 self.addressor.write(self.v, data);
                 self.v = self.v.wrapping_add(if self.vram_increment_bit() { 32 } else { 1 }) & 0x7FFF;
+                
             }
             _ => panic!("Bad PPU address")
         }
@@ -165,8 +166,16 @@ impl PPU {
             5 => { self.xscroll }
             6 => { self.addr }
             7 => { 
+                let ret = if self.v >= 0x3000 {
+                    self.ppu_read_buffer = self.addressor.read(self.v - 0x1000);
+                    self.addressor.read(self.v)
+                } else {
+                    let buf = self.ppu_read_buffer;
+                    self.ppu_read_buffer = self.addressor.read(self.v);
+                    buf
+                };
                 self.v = self.v.wrapping_add(if self.vram_increment_bit() { 32 } else { 1 }) & 0x7FFF;
-                self.data
+                ret
             }
             _ => panic!("Bad PPU address")
         };

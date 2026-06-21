@@ -11,6 +11,17 @@ pub struct PPUMemoryMap {
 }
 
 
+// Map a $3F00-$3FFF address to a palette-RAM index (0-0x1F), folding the
+// hardware mirrors: $3F10/$3F14/$3F18/$3F1C alias $3F00/$3F04/$3F08/$3F0C.
+// SMB1 sets the sky backdrop by writing it to $3F10, relying on this mirror.
+fn palette_index(addr: u16) -> usize {
+    let mut i = (addr & 0x001F) as usize;
+    if i & 0x13 == 0x10 {
+        i -= 0x10;
+    }
+    i
+}
+
 impl PPUMemoryMap {
     pub fn new(chr_data: &[u8], nametable_arrangement: NametableArrangement) -> Self {
         PPUMemoryMap{
@@ -30,11 +41,9 @@ impl PPUMemoryMap {
             0x2000..=0x2FFF => { self.vram[self.nametable_addr(addr) as usize] = data; },
             // Address space typically(?) mirrors the above address space
             0x3000..=0x3EFF => { self.vram[self.nametable_addr(addr & !(1 << 12)) as usize] = data; },
-            0x3F00..=0x3FFF => { self.pallette_ram[(addr & 0x001F) as usize] = data; },
+            0x3F00..=0x3FFF => { self.pallette_ram[palette_index(addr)] = data; },
             _ => ()
         };
-
-        //println!("Write {:02X} to {:04X}", data, addr);
     }
 
     pub fn read(&self, addr: u16) -> u8 {
@@ -43,7 +52,7 @@ impl PPUMemoryMap {
             0x2000..=0x2FFF => self.vram[self.nametable_addr(addr) as usize],
             // Address space typically(?) mirrors the above address space
             0x3000..=0x3EFF => self.vram[self.nametable_addr(addr) as usize],
-            0x3F00..=0x3FFF => self.pallette_ram[(addr & 0x001F) as usize],
+            0x3F00..=0x3FFF => self.pallette_ram[palette_index(addr)],
             _ => { panic!("Bad read"); }
         };
         //println!("Read {:02X} from {:04X}", ret, addr);
