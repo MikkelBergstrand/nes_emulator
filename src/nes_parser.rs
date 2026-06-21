@@ -102,7 +102,6 @@ pub fn read(filename: &str) -> Result<NESData, RomError> {
     //}
 
     let nes2_header = parse_nes2_header(&bytes);
-    dbg!("{}", &nes2_header);
     
     let mut offset: usize = 16; // Length of header
 
