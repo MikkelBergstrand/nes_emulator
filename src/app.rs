@@ -1,5 +1,7 @@
 
 use std::sync::Arc;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 use crate::inputs::{InputFlag, Inputs};
 use crate::{texture};
 use crate::nes::NES;
@@ -31,6 +33,7 @@ pub struct State {
     nes: NES,
     inputs: Inputs,
     texture_data: Vec<u8>,
+    t0: Instant,
 }
 
 impl State {
@@ -225,6 +228,7 @@ impl State {
             texture_data,
             nes: NES::from_args(),
             inputs: Inputs::new(),
+            t0: Instant::now(),
         })
     }
 
@@ -257,8 +261,9 @@ impl State {
         while !self.nes.image_ready() {
             self.nes.tick();
         }
-
         self.texture_data = self.nes.get_image_bytes().to_vec();
+        sleep(Duration::from_micros(16667).saturating_sub(Instant::now() - self.t0));
+        self.t0 = Instant::now();
     }
     
     pub fn render(&mut self) -> anyhow::Result<()> {
