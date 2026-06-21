@@ -10,6 +10,7 @@ mod instruction;
 mod nes;
 mod nes_parser;
 mod app;
+mod inputs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     app::run()?;

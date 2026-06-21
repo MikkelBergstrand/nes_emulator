@@ -2,7 +2,7 @@ use super::NES;
 
 #[derive(Debug)]
 enum Target {
-    RAM(u16), PPU(u8), ROM(u16), Unspecified, OAMDMA,
+    RAM(u16), PPU(u8), ROM(u16), Controller, Unspecified, OAMDMA,
 }
 
 impl NES {
@@ -12,6 +12,7 @@ impl NES {
             Target::RAM(addr) => { self.ram[addr] = value; }
             Target::PPU(addr) => { self.ppu.write(addr, value); }
             Target::ROM(_) => { }
+            Target::Controller => { self.input_controller.write(value); }
             Target::OAMDMA => { self.oam_dma(value); }
             Target::Unspecified => {}
         }
@@ -24,6 +25,7 @@ impl NES {
             Target::RAM(addr) => { self.ram[addr] }
             Target::PPU(addr) => { self.ppu.read(addr as u8) }
             Target::ROM(addr) => { self.rom.read(addr) }
+            Target::Controller => { self.input_controller.read(0) }
             Target::OAMDMA => { 0 },
             Target::Unspecified => { 0 }
         };
@@ -42,6 +44,7 @@ impl NES {
         match addr {
             0x0000..0x2000  => Target::RAM(addr & 0x07FF),
             0x2000..0x4000  => Target::PPU((addr as u8) % 8),
+            0x4016 => Target::Controller,
             0x4014 => Target::OAMDMA,
             0x8000..=0xFFFF => Target::ROM(addr & 0x7FFF),
             _ => Target::Unspecified

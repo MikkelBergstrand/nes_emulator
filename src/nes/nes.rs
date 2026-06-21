@@ -108,7 +108,7 @@ impl NES {
         };
 
 
-        if !matches!(instruction_data.instruction, Instruction::JMP) {
+        if !matches!(instruction_data.instruction, Instruction::JMP) && false {
             println!("{}, C={}, D={}, Z={}, N={}, B={}, I={}", 
                 instruction_data.to_string(arg),
                 self.cpu.flag_as_u8(CPUFlags::CARRY),

@@ -1,10 +1,12 @@
 mod nes;
 mod memory;
 mod addressing;
+mod input_controller;
 
 use image::Rgb;
 
 use crate::cpu::CPU; 
+use crate::nes::input_controller::InputController;
 use crate::nes_parser::NESData;
 use crate::ram::RAM;
 use crate::rom::ROM;
@@ -17,6 +19,7 @@ pub struct NES {
     ppu: PPU,
     ram: RAM,
     rom: ROM,
+    input_controller: InputController,
     instruction_data: [InstructionData; 256],
     cycles: usize,
 }
@@ -28,6 +31,7 @@ impl NES {
             ppu: PPU::new(&nes_data.chr_rom, nes_data.header.nametable_arrangement, color_data),
             ram: RAM::new(),
             rom: ROM::new(&nes_data.prg_rom),
+            input_controller: InputController::new(),
             instruction_data: InstructionData::make_instruction_table(),
             cycles: 0,
         };
@@ -56,4 +60,8 @@ impl NES {
     pub fn get_image_bytes(&mut self) -> &Vec<u8> { self.ppu.get_image_bytes() }
 
     pub fn image_ready(&self) -> bool { return self.ppu.image_ready(); }
+
+    pub fn set_controller_state(&mut self, state: u8) {
+        self.input_controller.set_controller_state(state);
+    }
 }

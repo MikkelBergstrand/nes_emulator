@@ -9,4 +9,5 @@ mod ppu;
 mod instruction;
 mod nes;
 mod nes_parser;
+mod inputs;
 mod app;

@@ -1,5 +1,6 @@
 
 use std::sync::Arc;
+use crate::inputs::{InputFlag, Inputs};
 use crate::{texture};
 use crate::nes::NES;
 use crate::{vertex::{INDICES, VERTICES, Vertex}};
@@ -28,6 +29,7 @@ pub struct State {
     diffuse_texture: texture::Texture,
 
     nes: NES,
+    inputs: Inputs,
     texture_data: Vec<u8>,
 }
 
@@ -222,6 +224,7 @@ impl State {
             diffuse_texture,
             texture_data,
             nes: NES::from_args(),
+            inputs: Inputs::new(),
         })
     }
 
@@ -234,17 +237,27 @@ impl State {
        } 
     }
 
-    fn handle_key(&self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
+    fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
         match (code, is_pressed) {
             (KeyCode::Escape, true) => event_loop.exit(),
+            (KeyCode::KeyX, v) => self.inputs.set(InputFlag::A, v),
+            (KeyCode::KeyZ, v) => self.inputs.set(InputFlag::B, v),
+            (KeyCode::ArrowUp, v) => self.inputs.set(InputFlag::DOWN, v),
+            (KeyCode::ArrowDown, v) => self.inputs.set(InputFlag::UP, v),
+            (KeyCode::ArrowLeft, v) => self.inputs.set(InputFlag::LEFT, v),
+            (KeyCode::ArrowRight, v) => self.inputs.set(InputFlag::RIGHT, v),
+            (KeyCode::Enter, v) => self.inputs.set(InputFlag::START, v),
+            (KeyCode::Backspace, v) => self.inputs.set(InputFlag::SELECT, v),
             _ => {}
         }
     }
 
     fn update(&mut self) {
+        self.nes.set_controller_state(self.inputs.get_input_byte().bits());
         while !self.nes.image_ready() {
             self.nes.tick();
         }
+
         self.texture_data = self.nes.get_image_bytes().to_vec();
     }
     
