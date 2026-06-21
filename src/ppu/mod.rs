@@ -10,14 +10,14 @@ use std::{usize};
 
 use image::Rgb;
 
-use crate::{nes_parser::NametableArrangement, ppu::{flags::PPUReg, oam::OAM, sprite_buffer_memory::BufferSprite}};
+use crate::{nes_parser::NametableArrangement, ppu::{flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus}, oam::OAM, sprite_buffer_memory::BufferSprite}};
 
 
 pub struct PPU {
     color_data: [Rgb<u8>; 64],
-    ctrl: u8,
-    mask: u8,
-    status: u8,
+    ctrl: PPUCTRL,
+    mask: PPUMask,
+    status: PPUStatus,
     oam_addr: u8,
     xscroll: u8,
     yscroll: u8,
@@ -58,11 +58,11 @@ pub struct PPU {
 impl PPU {
     pub fn new(chr_data: &[u8], nametable_arrangement: NametableArrangement, color_data: &[Rgb<u8>]) -> Self {
         Self {
-            mask: 0,
-            status: 0x80,
+            mask: PPUMask::empty(),
+            status: PPUStatus::VBLANK,
             oam_addr: 0,
             addr: 0,
-            ctrl: 0,
+            ctrl: PPUCTRL::empty(),
             xscroll: 0,
             yscroll: 0,
             nmi_lineout: false,
@@ -92,10 +92,10 @@ impl PPU {
     pub fn write(&mut self, addr: u8, data: u8) {
         match addr {
             PPUReg::CTRL => {
-                self.ctrl = data; 
+                self.ctrl = PPUCTRL::from_bits_retain(data); 
                 self.t = (self.t & !0x0C00) | ((data as u16 & 0x3) << 10);
             }
-            PPUReg::MASK => { self.mask = data; }
+            PPUReg::MASK => { self.mask = PPUMask::from_bits_retain(data); }
             PPUReg::STATUS => {  }
             PPUReg::OAMADDR => { self.oam_addr = data; }
             PPUReg::OAMDATA => {
@@ -137,7 +137,7 @@ impl PPU {
                 // TODO: this behavior only models PPU r/ws when *not* rendering
                 // When rendering, the behavior is different, see wiki.
                 self.addressor.write(self.v, data);
-                self.v = self.v.wrapping_add(if self.vram_increment_bit() { 32 } else { 1 }) & 0x7FFF;
+                self.v = self.v.wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) { 32 } else { 1 }) & 0x7FFF;
                 
             }
             _ => panic!("Bad PPU address")
@@ -154,13 +154,13 @@ impl PPU {
     pub fn read(&mut self, addr: u8) -> u8 {
         let ret = match addr { 
             PPUReg::CTRL => { 
-                self.ctrl 
+                self.ctrl.bits()
             } 
-            PPUReg::MASK => { self.mask }
+            PPUReg::MASK => { self.mask.bits() }
             PPUReg::STATUS => { 
                 self.w = false;
-                let temp = self.status;
-                self.status &= !(0x80); //Unset vblank flag
+                let temp = self.status.bits();
+                self.status &= PPUStatus::VBLANK;
                 temp
             }
             PPUReg::OAMADDR => { self.oam_addr }
@@ -176,7 +176,7 @@ impl PPU {
                     self.ppu_read_buffer = self.addressor.read(self.v);
                     buf
                 };
-                self.v = self.v.wrapping_add(if self.vram_increment_bit() { 32 } else { 1 }) & 0x7FFF;
+                self.v = self.v.wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) { 32 } else { 1 }) & 0x7FFF;
                 ret
             }
             _ => panic!("Bad PPU address")
@@ -195,17 +195,17 @@ impl PPU {
     // **
     // CTRL Flags
     // **
-    fn vram_increment_bit(&self) -> bool { (self.ctrl & (1 << 2)) != 0 }
-    fn sprite_pattern_table_base(&self) -> u16 { if (self.ctrl & (1 << 3)) != 0 { 0x1000 } else { 0 }}
-    fn base_background_pattern_address(&self) -> u16   { if (self.ctrl & (1 << 4)) != 0 { 0x1000 } else { 0 }}
-    fn vblank_nmi_enable(&self) -> bool   { (self.ctrl & (1 << 7)) != 0 }
-    
-    // **
-    // MASK flags
-    // **
-    fn greyscale(&self) -> bool         { return (self.mask & 0x01) != 0; }
-    fn enable_background(&self) -> bool { return (self.mask & 0x08) != 0; }
-    fn enable_sprites(&self) -> bool    { return (self.mask & 0x10) != 0; }
+    //fn vram_increment_bit(&self) -> bool { (self.ctrl & (1 << 2)) != 0 }
+    //fn sprite_pattern_table_base(&self) -> u16 { if (self.ctrl & (1 << 3)) != 0 { 0x1000 } else { 0 }}
+    //fn base_background_pattern_address(&self) -> u16   { if (self.ctrl & (1 << 4)) != 0 { 0x1000 } else { 0 }}
+    //fn vblank_nmi_enable(&self) -> bool   { (self.ctrl & (1 << 7)) != 0 }
+    //
+    //// **
+    //// MASK flags
+    //// **
+    //fn greyscale(&self) -> bool         { return (self.mask & 0x01) != 0; }
+    //fn enable_background(&self) -> bool { return (self.mask & 0x08) != 0; }
+    //fn enable_sprites(&self) -> bool    { return (self.mask & 0x10) != 0; }
 
 
     pub fn image_ready(&self) -> bool { return self.image_ready; }

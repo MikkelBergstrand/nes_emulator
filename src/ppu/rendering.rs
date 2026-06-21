@@ -1,4 +1,6 @@
-use crate::ppu::{PPU, oam::TempSpriteInfo, sprite_buffer_memory::BufferSprite};
+use bitflags::Flags;
+
+use crate::ppu::{PPU, flags::{PPUCTRL, PPUMask, PPUStatus}, oam::TempSpriteInfo, sprite_buffer_memory::BufferSprite};
 
 
 pub const IMG_WIDTH: usize = 256;
@@ -49,7 +51,9 @@ impl PPU {
 
         let fine_y = (self.v >> 12) & 0x07;
 
-        let pattern_base = self.base_background_pattern_address();
+        // 0x1000 or 0x0000, depending on CTRL flag
+        let pattern_base: u16 = (self.ctrl.contains(PPUCTRL::BG_PATTERN_ADDR) as u16) << 12;
+
         let tile =  self.addressor.read(tile_address) as u16;
 
         let mut attribute = self.addressor.read(attribute_address);
@@ -102,10 +106,11 @@ impl PPU {
             //Assume 8x8 sprite, TODO implement 8x16 logic.
             // bit 3 of PPUCTRL index pattern table base
             // y_idx: row offset into pattern table
-            let pattern_address_lo = self.sprite_pattern_table_base() 
+            let pattern_base = (self.ctrl.contains(PPUCTRL::SPRITE_PATTERN_ADDR) as u16) << 12;
+            let pattern_address_lo = pattern_base
                 | ((sprite.tile_index as u16) << 4) 
                 | (sprite.y_pos as u16);
-            let pattern_address_hi = self.sprite_pattern_table_base() 
+            let pattern_address_hi = pattern_base
                 | ((sprite.tile_index as u16) << 4) 
                 | 8 | (sprite.y_pos as u16);
             
@@ -161,7 +166,7 @@ impl PPU {
             // Set the sprite 0 hit flag if this sprite is sprite 0,
             // and both the background and sprite pixel is opaque (non-zero)
             if self.sprite_buffer_data[i].is_sprite_0 && bg_pixel != 0 && sprite_pix != 0 {
-                self.status |= 0x40; 
+                self.status.set(PPUStatus::SPRITE0_HIT, true);
             }
         }
 
@@ -178,7 +183,7 @@ impl PPU {
 
         let mut color_index = (self.addressor.read(pallette_addr)) as usize;
 
-        if self.greyscale() {
+        if self.mask.contains(PPUMask::GREYSCALE) {
             color_index = color_index & 0x30;
         }
         let rgb = self.color_data[color_index];
@@ -191,7 +196,7 @@ impl PPU {
     }
 
     pub fn tick(&mut self) {
-        if self.enable_sprites() || self.enable_background() {
+        if self.mask.contains(PPUMask::SPRITE_RENDER_EN) || self.mask.contains(PPUMask::BACKGROUND_RENDER_EN) {
             if self.scanline == 261 && (280..=304).contains(&self.cycle){
                 // vert(v) = vert(t);
                 self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
@@ -243,9 +248,9 @@ impl PPU {
 
         if self.scanline == 241 && self.cycle == 1 {
             // Set vblank flag
-            self.status |= 0x80;
+            self.status.set(PPUStatus::VBLANK, true);
             // Must have NMI enabled in PPUCTRL
-            if self.vblank_nmi_enable() {
+            if self.ctrl.contains(PPUCTRL::VBLANK_NMI_EN) {
                 // Only trigger NMI on rising edge of STATUS bit.
                 if !self.nmi_lineout {
                     self.pending_nmi = true;
@@ -256,7 +261,9 @@ impl PPU {
         }
 
         if self.scanline == 261 && self.cycle == 1 {
-            self.status = self.status & 0x0F;
+            self.status.remove(PPUStatus::VBLANK);
+            self.status.remove(PPUStatus::SPRITE0_HIT);
+            self.status.remove(PPUStatus::SPRITE_OVERFLOW);
             self.image_ready = false;
 
         }
@@ -310,8 +317,7 @@ impl PPU {
 
             let cmp = (self.scanline as u16).wrapping_sub((y_pos) as u16);
             if cmp < 8 {
-                // Set sprite overflow flag
-                self.status |= 0x10;
+                self.status.insert(PPUStatus::SPRITE_OVERFLOW);
                 m += 3;
                 if m > 3 {
                     n += 1;
