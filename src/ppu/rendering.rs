@@ -149,10 +149,13 @@ impl PPU {
     fn draw_tile(&mut self, xpos: usize, ypos: usize) {
         let bit_mux = 0x8000u16 >> self.x;
 
-        let p0 = ((self.pattern_data_lb & bit_mux) != 0) as u8;
-        let p1 = ((self.pattern_data_hb & bit_mux) != 0) as u8;
-        let bg_pixel = (p1 << 1) | p0;
-        
+        let bg_pixel = if self.mask.contains(PPUMask::BACKGROUND_RENDER_EN) {
+            let p0 = ((self.pattern_data_lb & bit_mux) != 0) as u8;
+            let p1 = ((self.pattern_data_hb & bit_mux) != 0) as u8;
+            p1 << 1 | p0
+        } else { 
+            0
+        };
 
         let a0 = ((self.attribute_data_lb & bit_mux) != 0) as u8;
         let a1 = ((self.attribute_data_hb & bit_mux) != 0) as u8;
@@ -162,24 +165,26 @@ impl PPU {
         let mut sprite_priority = false;
         let mut sprite_pallette = 0;
 
-        for i in 0..8 {
-            if self.sprite_buffer_data[i].x != 0 { continue; }
+        if self.mask.contains(PPUMask::SPRITE_RENDER_EN) {
+            for i in 0..8 {
+                if self.sprite_buffer_data[i].x != 0 { continue; }
 
-            // First visible sprite in buffer memory gets priority
-            if sprite_pix == 0 {
-                let s1 = (self.sprite_buffer_data[i].pattern_hi & 0x80 != 0) as u8;
-                let s0 = (self.sprite_buffer_data[i].pattern_lo & 0x80 != 0) as u8;
-                let s = (s1 << 1) | s0;
+                // First visible sprite in buffer memory gets priority
+                if sprite_pix == 0 {
+                    let s1 = (self.sprite_buffer_data[i].pattern_hi & 0x80 != 0) as u8;
+                    let s0 = (self.sprite_buffer_data[i].pattern_lo & 0x80 != 0) as u8;
+                    let s = (s1 << 1) | s0;
 
-                sprite_pix = s;
-                sprite_priority = self.sprite_buffer_data[i].priority != 0;
-                sprite_pallette = self.sprite_buffer_data[i].pallette;
-            }
+                    sprite_pix = s;
+                    sprite_priority = self.sprite_buffer_data[i].priority != 0;
+                    sprite_pallette = self.sprite_buffer_data[i].pallette;
+                }
 
-            // Set the sprite 0 hit flag if this sprite is sprite 0,
-            // and both the background and sprite pixel is opaque (non-zero)
-            if self.sprite_buffer_data[i].is_sprite_0 && bg_pixel != 0 && sprite_pix != 0 {
-                self.status.set(PPUStatus::SPRITE0_HIT, true);
+                // Set the sprite 0 hit flag if this sprite is sprite 0,
+                // and both the background and sprite pixel is opaque (non-zero)
+                if self.sprite_buffer_data[i].is_sprite_0 && bg_pixel != 0 && sprite_pix != 0 {
+                    self.status.set(PPUStatus::SPRITE0_HIT, true);
+                }
             }
         }
 
@@ -230,7 +235,7 @@ impl PPU {
 
                     self.update_background_shifters();
 
-                    if (self.cycle) % 8 == 0 { 
+                    if self.cycle % 8 == 0 { 
                         self.load_background_shifters(); 
                         self.horizontal_increment();
                     }
@@ -244,7 +249,6 @@ impl PPU {
                     //horiz(v) = horiz(t);
                     self.v = (self.v & !0x041F) | (self.t & 0x041F); 
                 }
-
 
                 //OAMADDR behavior
                 if (257..=320).contains(&self.cycle) {
