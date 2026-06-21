@@ -10,8 +10,9 @@ pub const IMG_SIZE: usize = IMG_HEIGHT*IMG_WIDTH*BYTES_PER_PIXEL;
 
 
 impl PPU {
-    fn inc_hori(&mut self) {
-        // X-increment (when next tile is reached)
+    // X-increment. PPU does this after every tile render, including
+    // on the pre-render scanline
+    fn horizontal_increment(&mut self) {
         if (self.v & 0x001F) == 31  {
             self.v &= !0x001F;
             self.v ^= 0x0400;
@@ -23,7 +24,9 @@ impl PPU {
 
     }
 
-    fn inc_vert(&mut self) {
+    // Y-increment. PPU does this after every rendered scanline, 
+    // including the pre-render scanline.
+    fn vertical_increment(&mut self) {
         if (self.v & 0x7000) != 0x7000 {
             self.v += 0x1000;
         } else {
@@ -43,7 +46,7 @@ impl PPU {
         self.v &= 0x7FFF;
     }
 
-    fn load_shifters(&mut self) {
+    fn load_background_shifters(&mut self) {
         let tile_address = 0x2000 | (self.v & 0x0FFF);
         let attribute_address = 0x23C0 | (self.v & 0x0C00)
             | ((self.v >> 4) & 0x38)
@@ -57,12 +60,12 @@ impl PPU {
         let tile =  self.addressor.read(tile_address) as u16;
 
         let mut attribute = self.addressor.read(attribute_address);
-        if (self.v >> 5) & 0x02 != 0 { attribute >>= 4; }
+        if (self.v >> 5) & 0x02 != 0 { attribute >>= 4; } 
         if  self.v       & 0x02 != 0 { attribute >>= 2; }
         let attribute = attribute & 0x03;
 
         let pattern_low_addr  = pattern_base | (tile << 4) | 0 | fine_y; 
-        let pattern_high_addr = pattern_base | (tile << 4) | 8 | fine_y; 
+        let pattern_high_addr = pattern_low_addr | 8; 
 
         self.pattern_data_lb = (self.pattern_data_lb & 0xFF00) | ((self.addressor.read(pattern_low_addr) as u16));
         self.pattern_data_hb = (self.pattern_data_hb & 0xFF00) | ((self.addressor.read(pattern_high_addr) as u16));
@@ -75,24 +78,34 @@ impl PPU {
     }
 
 
-    fn update_shifters(&mut self)  {
+    // Shift data in shift registers to get the next background pixel.
+    fn update_background_shifters(&mut self)  {
         self.pattern_data_lb <<= 1;
         self.pattern_data_hb <<= 1;
         self.attribute_data_lb <<= 1;
         self.attribute_data_hb <<= 1;
     }
 
+    // Shift relevant sprite register to get the next sprite pixel.
     fn update_sprite_buffers(&mut self) {
         for i in 0..8 {
             if self.sprite_buffer_data[i].x == 0 {
+                // Sprite x aligned with current pixel, or beyond
+                // When beyond, the shifters only emit zeros.
                 self.sprite_buffer_data[i].pattern_lo <<= 1;
                 self.sprite_buffer_data[i].pattern_hi <<= 1;
             } else {
+                // Wait for x-coordinate to align with 
+                // current pixel
                 self.sprite_buffer_data[i].x -= 1;
             }
         }
     }
 
+    // Take data from secondary OAM, which contains the sprite data
+    // relevant for the next scanline, and store it in 
+    // temporary sprite buffers. Effectively is just a data 
+    // transformation.
     fn load_sprite_data(&mut self) {
         for i in 0..8 {
             let sprite = self.oam.temp_sprite_info[i];
@@ -110,9 +123,7 @@ impl PPU {
             let pattern_address_lo = pattern_base
                 | ((sprite.tile_index as u16) << 4) 
                 | (sprite.y_pos as u16);
-            let pattern_address_hi = pattern_base
-                | ((sprite.tile_index as u16) << 4) 
-                | 8 | (sprite.y_pos as u16);
+            let pattern_address_hi = pattern_address_lo | 8;
             
             let mut pattern_lo = self.addressor.read(pattern_address_lo);
             let mut pattern_hi = self.addressor.read(pattern_address_hi);
@@ -134,6 +145,7 @@ impl PPU {
         }
     }
 
+    // Draw tile at (xpos, ypos)
     fn draw_tile(&mut self, xpos: usize, ypos: usize) {
         let bit_mux = 0x8000u16 >> self.x;
 
@@ -153,6 +165,7 @@ impl PPU {
         for i in 0..8 {
             if self.sprite_buffer_data[i].x != 0 { continue; }
 
+            // First visible sprite in buffer memory gets priority
             if sprite_pix == 0 {
                 let s1 = (self.sprite_buffer_data[i].pattern_hi & 0x80 != 0) as u8;
                 let s0 = (self.sprite_buffer_data[i].pattern_lo & 0x80 != 0) as u8;
@@ -170,8 +183,7 @@ impl PPU {
             }
         }
 
-
-        // MUX
+        // MUX - determine if picking sprite, background, or backdrop (neither)
         let pallette_addr = match (bg_pixel, sprite_pix, sprite_priority) {
             (0, 0, _) =>             0x3F00,
             (0, 1..=3, _) =>         0x3F10 | ((sprite_pallette as u16) << 2) | (sprite_pix as u16),
@@ -216,16 +228,16 @@ impl PPU {
                         self.update_sprite_buffers();
                     }
 
-                    self.update_shifters();
+                    self.update_background_shifters();
 
                     if (self.cycle) % 8 == 0 { 
-                        self.load_shifters(); 
-                        self.inc_hori();
+                        self.load_background_shifters(); 
+                        self.horizontal_increment();
                     }
                 }
                 
                 if self.cycle == 256 {
-                    self.inc_vert();
+                    self.vertical_increment();
                 }
 
                 if self.cycle == 257 { 
