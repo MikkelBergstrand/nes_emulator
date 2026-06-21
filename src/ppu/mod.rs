@@ -1,4 +1,5 @@
 pub mod pattern_table;
+mod flags;
 mod addressing;
 mod rendering;
 mod oam;
@@ -9,7 +10,7 @@ use std::{usize};
 
 use image::Rgb;
 
-use crate::{nes_parser::NametableArrangement, ppu::{oam::OAM, sprite_buffer_memory::BufferSprite}};
+use crate::{nes_parser::NametableArrangement, ppu::{flags::PPUReg, oam::OAM, sprite_buffer_memory::BufferSprite}};
 
 
 pub struct PPU {
@@ -90,18 +91,18 @@ impl PPU {
 
     pub fn write(&mut self, addr: u8, data: u8) {
         match addr {
-            0 => { // PPUCTRL
+            PPUReg::CTRL => {
                 self.ctrl = data; 
                 self.t = (self.t & !0x0C00) | ((data as u16 & 0x3) << 10);
             }
-            1 => { self.mask = data; }
-            2 => {  }
-            3 => { self.oam_addr = data; }
-            4 => {  //OAMADDR
+            PPUReg::MASK => { self.mask = data; }
+            PPUReg::STATUS => {  }
+            PPUReg::OAMADDR => { self.oam_addr = data; }
+            PPUReg::OAMDATA => {
                 self.oam.sprites[self.oam_addr as usize] = data;
                 self.oam_addr = self.oam_addr.wrapping_add(1);
             }
-            5 => {  //PPUSCROLL
+            PPUReg::SCROLL => {  
                 // Writes to scroll changes xscroll and yscroll
                 // depending on the order of writes.
                 if self.w  {
@@ -117,9 +118,11 @@ impl PPU {
                 }
                 self.w = !self.w;
             }
-            6 => { //PPUADDR
+            PPUReg::ADDR => { 
                 self.addr = data; 
 
+                //Like PPUSCROLL, writing depends on the state of w
+                //Effectively, the high and low byte is set on every other write
                 if self.w {
                     self.t = (self.t & 0xFF00) | data as u16;
                     self.t &= !(1 << 14);
@@ -130,7 +133,7 @@ impl PPU {
 
                 self.w = !self.w;
             }
-            7 => {  //PPUDATA
+            PPUReg::DATA => {
                 // TODO: this behavior only models PPU r/ws when *not* rendering
                 // When rendering, the behavior is different, see wiki.
                 self.addressor.write(self.v, data);
@@ -149,22 +152,22 @@ impl PPU {
     }
 
     pub fn read(&mut self, addr: u8) -> u8 {
-        let ret = match addr { //PPUCTRL
-            0 => { 
+        let ret = match addr { 
+            PPUReg::CTRL => { 
                 self.ctrl 
             } 
-            1 => { self.mask }
-            2 => { // PPUSTATUS
+            PPUReg::MASK => { self.mask }
+            PPUReg::STATUS => { 
                 self.w = false;
                 let temp = self.status;
                 self.status &= !(0x80); //Unset vblank flag
                 temp
             }
-            3 => { self.oam_addr }
-            4 => { self.oam.sprites[self.oam_addr as usize] }
-            5 => { self.xscroll }
-            6 => { self.addr }
-            7 => { 
+            PPUReg::OAMADDR => { self.oam_addr }
+            PPUReg::OAMDATA => { self.oam.sprites[self.oam_addr as usize] }
+            PPUReg::SCROLL => { self.xscroll }
+            PPUReg::ADDR => { self.addr }
+            PPUReg::DATA => { 
                 let ret = if self.v >= 0x3000 {
                     self.ppu_read_buffer = self.addressor.read(self.v - 0x1000);
                     self.addressor.read(self.v)
