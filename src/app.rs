@@ -376,6 +376,7 @@ impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes();
+        window_attributes.title = String::from("MikkNES");
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         #[cfg(not(target_arch = "wasm32"))]
