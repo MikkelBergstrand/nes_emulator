@@ -40,8 +40,7 @@ impl NES {
     } 
 
     pub fn from_args() -> Self {
-        let rom_file = std::env::args().nth(1).unwrap_or(String::from("smb1.nes"));
-
+        let rom_file = std::env::args().nth(1).unwrap_or(String::from("roms/smb1.nes"));
         let color_data_file = std::env::args().nth(2).unwrap_or(String::from("colors.pal"));
 
         let mut color_data: Vec<u8> = std::fs::read(&color_data_file).unwrap();
