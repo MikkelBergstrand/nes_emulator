@@ -260,7 +260,13 @@ impl PPU {
                 self.evaluate_sprites(self.scanline+1);
                 self.load_sprite_data();
             }
+        } else if (1..=256).contains(&self.cycle) && (0..240).contains(&self.scanline) {
+            // We must still render nothing even when rendering is disabled
+            // to wipe out the screen.
+            self.draw_tile(self.cycle-1, self.scanline);
+
         }
+
 
         if self.scanline == 241 && self.cycle == 1 {
             // Set vblank flag
