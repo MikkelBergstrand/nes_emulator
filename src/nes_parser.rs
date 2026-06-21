@@ -173,12 +173,3 @@ pub fn parse_nes2_header(bytes: &[u8]) -> NES2Header {
         misc_roms: bytes[14] & 0x03,
     }
 }
-
-// Debug method to dump contents of the raw .nes binary
-pub fn dump_bytes(bytes: &[u8]) {
-    for (i, byte) in bytes.iter().enumerate() {
-        print!("{:x} ", byte);
-        if i > 0 && i % 8 == 0 { println!(); } 
-    } 
-    println!();
-}
