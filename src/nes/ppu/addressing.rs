@@ -1,6 +1,6 @@
 use std::usize;
 
-use crate::nes_parser::NametableArrangement;
+use crate::nes::nes_parser::NametableArrangement;
 
 pub struct PPUMemoryMap {
     chr_data: Vec<u8>, // Pattern table data

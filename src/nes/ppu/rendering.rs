@@ -1,6 +1,4 @@
-use bitflags::Flags;
-
-use crate::ppu::{PPU, flags::{PPUCTRL, PPUMask, PPUStatus}, oam::TempSpriteInfo, sprite_buffer_memory::BufferSprite};
+use super::{PPU, flags::{PPUCTRL, PPUMask, PPUStatus}, oam::TempSpriteInfo, sprite_buffer_memory::BufferSprite};
 
 
 pub const IMG_WIDTH: usize = 256;

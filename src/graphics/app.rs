@@ -1,11 +1,10 @@
-
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use crate::inputs::{InputFlag, Inputs};
-use crate::{texture};
+use super::texture;
 use crate::nes::NES;
-use crate::{vertex::{INDICES, VERTICES, Vertex}};
+use super::{vertex::{INDICES, VERTICES, Vertex}};
 
 use image::{DynamicImage};
 use wgpu::util::DeviceExt;

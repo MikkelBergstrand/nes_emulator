@@ -1,6 +1,6 @@
-use crate::addressing::AddressingMode;
-use crate::instruction::Instruction;
-use crate::cpu::CPUFlags;
+use super::addressing::AddressingMode;
+use super::instruction::Instruction;
+use super::cpu::CPUFlags;
 use super::NES;
 
 impl NES {

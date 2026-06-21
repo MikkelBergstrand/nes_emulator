@@ -1,18 +1,24 @@
 mod nes;
+mod cpu;
+mod rom;
+mod ppu;
+mod ram;
+mod opcodes;
 mod memory;
+mod nes_parser;
 mod addressing;
 mod input_controller;
+mod instruction;
 
 use image::Rgb;
 
-use crate::cpu::CPU; 
+use cpu::CPU; 
 use crate::nes::input_controller::InputController;
-use crate::nes_parser::NESData;
-use crate::ram::RAM;
-use crate::rom::ROM;
-use crate::ppu::PPU;
-use crate::opcodes::InstructionData;
-use crate::nes_parser;
+use nes_parser::NESData;
+use ram::RAM;
+use rom::ROM;
+use ppu::PPU;
+use opcodes::InstructionData;
 
 pub struct NES {
     cpu: CPU,

@@ -10,7 +10,7 @@ use std::{usize};
 
 use image::Rgb;
 
-use crate::{nes_parser::NametableArrangement, ppu::{flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus}, oam::OAM, sprite_buffer_memory::BufferSprite}};
+use super::{nes_parser::NametableArrangement, ppu::{flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus}, oam::OAM, sprite_buffer_memory::BufferSprite}};
 
 
 pub struct PPU {

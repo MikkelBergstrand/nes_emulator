@@ -1,5 +1,5 @@
-use crate::instruction::Instruction;
-use crate::addressing::AddressingMode;
+use super::instruction::Instruction;
+use super::addressing::AddressingMode;
 
 
 
