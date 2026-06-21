@@ -92,7 +92,7 @@ impl From<std::io::Error> for RomError {
 pub fn read(filename: &str) -> Result<NESData, RomError> {
     let bytes: Vec<u8> = fs::read(filename)?;
 
-    if bytes[0..4] != [0x4E, 0x45, 0x53, 0x1A] { // 'NES{EOF}' in ASCII
+    if &bytes[0..4] != b"NES\x1A" { 
         return Err(RomError::UnrecognizedFormat);
     }
 
