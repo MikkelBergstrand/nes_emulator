@@ -160,7 +160,7 @@ impl PPU {
 
             // Set the sprite 0 hit flag if this sprite is sprite 0,
             // and both the background and sprite pixel is opaque (non-zero)
-            if self.sprite_buffer_data[i].is_sprite_0 && bg_pixel != 0 {
+            if self.sprite_buffer_data[i].is_sprite_0 && bg_pixel != 0 && sprite_pix != 0 {
                 self.status |= 0x40; 
             }
         }
@@ -238,7 +238,6 @@ impl PPU {
             if (0..=239).contains(&self.scanline) && self.cycle == 256 {
                 self.evaluate_sprites(self.scanline+1);
                 self.load_sprite_data();
-
             }
         }
 

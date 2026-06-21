@@ -72,13 +72,11 @@ impl NES {
 
     pub fn tick(&mut self) {
         if self.ppu.pending_nmi() {
-            println!("Begin NMI");
             self.process_nmi();
             self.ppu.clear_nmi();
         }
-
         self.cpu_tick();
-        for _ in 0..3 {
+        for _ in 0..(3*self.cycles) {
             self.ppu.tick();
         }
     }
@@ -111,7 +109,15 @@ impl NES {
 
 
         if !matches!(instruction_data.instruction, Instruction::JMP) {
-            println!("{}", instruction_data.to_string(arg));
+            println!("{}, C={}, D={}, Z={}, N={}, B={}, I={}", 
+                instruction_data.to_string(arg),
+                self.cpu.flag_as_u8(CPUFlags::CARRY),
+                self.cpu.flag_as_u8(CPUFlags::DECIMAL),
+                self.cpu.flag_as_u8(CPUFlags::ZERO),
+                self.cpu.flag_as_u8(CPUFlags::NEGATIVE),
+                self.cpu.flag_as_u8(CPUFlags::BREAK),
+                self.cpu.flag_as_u8(CPUFlags::IRQ)
+            );
         }
 
         // advance program counter
@@ -285,7 +291,7 @@ impl NES {
                         // byte is 0xFF, the high byte is fetched from the start of the same page
                         // instead of the next one (e.g. ($03FF) reads high from $0300, not $0400).
                         let highbyte_address =
-                            if crate::addressing::address_crosses_page(pointer) {
+                            if (pointer & 0x00FF) == 0x00FF {
                                 pointer & 0xFF00
                             } else {
                                 pointer.wrapping_add(1)

@@ -18,10 +18,10 @@ pub enum AddressingMode {
     Relative
 }
 
-// Determine if the address above the input address is in another page.
-// For instance, the address 0x03FF and 0x0400 are in different pages.
-// The check boils down to checking if the two LSB are FF.
-pub fn address_crosses_page(address: u16) -> bool {
-    (address & 0xFF) == 0xFF
+// True when adding an index moved the effective address into a different
+// 256-byte page (i.e. the high byte changed). Used to charge the extra cycle
+// for AbsoluteX/AbsoluteY/IndirectY reads.
+pub fn address_crosses_page(base: u16, effective: u16) -> bool {
+    (base & 0xFF00) != (effective & 0xFF00)
 }
 

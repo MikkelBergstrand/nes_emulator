@@ -22,18 +22,6 @@ impl PPUMemoryMap {
         }
     }
 
-    // Select the active 8KB CHR-ROM bank. The bank is taken modulo the number
-    // of banks present so an out-of-range write can never index out of bounds.
-    pub fn set_chr_bank(&mut self, bank: usize) {
-        let banks = (self.chr_data.len() / 0x2000).max(1);
-        self.chr_bank = bank % banks;
-    }
-
-    // Map a $0000-$1FFF pattern-table address through the selected CHR bank.
-    fn chr_offset(&self, addr: u16) -> usize {
-        (self.chr_bank * 0x2000 + addr as usize) % self.chr_data.len()
-    }
-
     pub fn write(&mut self, addr: u16, data: u8) {
         let addr = addr & 0x3FFF;
         //println!("Writing to VRAM {:04X}", addr);
