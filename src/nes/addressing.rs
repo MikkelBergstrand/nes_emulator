@@ -44,8 +44,9 @@ impl NES {
                 return Some((eff, address_crosses_page(address, eff)));
             }
             AddressingMode::IndirectX => { 
-                let arg1 = self.read(address.wrapping_add(self.cpu.x as u16)) as u16;
-                let arg2 = self.read(address.wrapping_add(self.cpu.x as u16).wrapping_add(1) as u16) as u16;
+                let ptr = (address as u8).wrapping_add(self.cpu.x) as u16;
+                let arg1 = self.read(ptr) as u16;
+                let arg2 = self.read((ptr+1) & 0xFF) as u16;
                 Some((arg1 | (arg2 << 8), false))
             },
             AddressingMode::IndirectY => {
