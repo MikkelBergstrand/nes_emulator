@@ -220,9 +220,6 @@ impl PPU {
             }
 
             if (0..=239).contains(&self.scanline) || self.scanline == 261 {
-                if self.cycle == 0 {
-                    self.oam.clear_secondary_oam();
-                }
 
                 if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
                     if self.cycle <= 256 && self.scanline < 240 {
@@ -256,7 +253,8 @@ impl PPU {
                 }
             }
 
-            if (0..=239).contains(&self.scanline) && self.cycle == 256 {
+            if ((0..240).contains(&self.scanline) || self.scanline == 261) && self.cycle == 256 {
+                self.oam.clear_secondary_oam();
                 self.evaluate_sprites(self.scanline+1);
                 self.load_sprite_data(mapper);
             }
@@ -301,31 +299,28 @@ impl PPU {
     }
 
     pub fn evaluate_sprites(&mut self, scanline: usize) {
-        self.oam.clear_secondary_oam();
         
         let mut found = 0;  
         let mut n = 0;
-        let mut m = 0;
 
-        for _ in 0..64 {
-            let y_pos = self.oam.sprites[4*n];
+        while n < 256 {
+            let y_pos = self.oam.sprites[n];
             // 9-bit difference of scanline and sprite y_pos
             let cmp = (scanline as u16).wrapping_sub((y_pos.wrapping_add(1)) as u16) as u8;
 
             // Check if scanline intersects sprite
             if cmp < 8 {
-                let flip_y = (self.oam.sprites[4*n+2] & 0x80) != 0;
+                let flip_y = (self.oam.sprites[n+2] & 0x80) != 0;
                 self.oam.temp_sprite_info[found] = TempSpriteInfo {
                     y_pos: if flip_y { 7 - cmp } else { cmp }, // Flip y_pos bits if flip
-                    tile_index: self.oam.sprites[4*n+1],
-                    attributes: self.oam.sprites[4*n+2],
-                    x_pos:      self.oam.sprites[4*n+3],
+                    tile_index: self.oam.sprites[n+1],
+                    attributes: self.oam.sprites[n+2],
+                    x_pos:      self.oam.sprites[n+3],
                     is_sprite_0: n == 0,
                 };
-                //println!("Sprite at x={} y={}", self.oam.temp_sprite_info[found].x_pos, self.oam.temp_sprite_info[found].y_pos);
                 found += 1;
             }
-            n += 1;
+            n += 4;
             if found >= 8 {
                 break;
             }
@@ -333,29 +328,18 @@ impl PPU {
 
         // Step 3: Now prite memory is full.
         // This step is intended to set the sprite overflow flag.
-        // The routine is buggy and does not work as intended.
-        while n < 64 {
-            let y_pos = self.oam.sprites[4*n+m];
+        // The routine on the NES is buggy and does not work as intended.
+        while n < 256 {
+            let y_pos = self.oam.sprites[n];
 
             let cmp = (self.scanline as u16).wrapping_sub((y_pos) as u16);
             if cmp < 8 {
                 self.status.insert(PPUStatus::SPRITE_OVERFLOW);
-                m += 3;
-                if m > 3 {
-                    n += 1;
-                    m = m % 3;
-                } 
-
+                n += 4;
             } else {
-                n += 1; m += 1; // Bug here: m should not be incremented.
-                if m > 3 {
-                    n += 1;
-                    m = m % 3;
-                } 
-                if n >= 64 {
-                    break;
-                }
+                n += 5; 
             }
+
         }
     }
 }
