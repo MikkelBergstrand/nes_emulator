@@ -2,7 +2,7 @@ use super::NES;
 
 #[derive(Debug)]
 enum Target {
-    RAM(u16), PPU(u8), ROM(u16), Controller, Unspecified, OAMDMA,
+    RAM(u16), PPU(u8), Mapper(u16), Controller, Unspecified, OAMDMA,
 }
 
 impl NES {
@@ -10,8 +10,8 @@ impl NES {
         let target = self.resolve_mmap(addr);
         match target {
             Target::RAM(addr) => { self.ram[addr] = value; }
-            Target::PPU(addr) => { self.ppu.write(addr, value); }
-            Target::ROM(_) => { }
+            Target::PPU(addr) => { self.ppu.write(&mut self.mapper, addr, value); }
+            Target::Mapper(addr) => { self.mapper.cpu_write(addr, value); }
             Target::Controller => { self.input_controller.write(value); }
             Target::OAMDMA => { self.oam_dma(value); }
             Target::Unspecified => {}
@@ -23,12 +23,13 @@ impl NES {
 
         let ret = match target {
             Target::RAM(addr) => { self.ram[addr] }
-            Target::PPU(addr) => { self.ppu.read(addr as u8) }
-            Target::ROM(addr) => { self.rom.read(addr) }
+            Target::PPU(addr) => { self.ppu.read(&mut self.mapper, addr as u8) }
+            Target::Mapper(addr) => { self.mapper.cpu_read(addr) }
             Target::Controller => { self.input_controller.read(0) }
             Target::OAMDMA => { 0 },
             Target::Unspecified => { 0 }
         };
+
         ret
     }
 
@@ -46,9 +47,8 @@ impl NES {
             0x2000..0x4000  => Target::PPU((addr as u8) % 8),
             0x4016 => Target::Controller,
             0x4014 => Target::OAMDMA,
-            0x8000..=0xFFFF => Target::ROM(addr & 0x7FFF),
+            0x4020..=0xFFFF => Target::Mapper(addr),
             _ => Target::Unspecified
         }
     }
-
 }

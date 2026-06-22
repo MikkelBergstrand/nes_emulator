@@ -1,6 +1,5 @@
 mod nes;
 mod cpu;
-mod rom;
 mod ppu;
 mod ram;
 mod opcodes;
@@ -9,6 +8,7 @@ mod nes_parser;
 mod addressing;
 mod input_controller;
 mod instruction;
+mod mappers;
 
 use image::Rgb;
 
@@ -16,30 +16,30 @@ use cpu::CPU;
 use crate::nes::input_controller::InputController;
 use nes_parser::NESData;
 use ram::RAM;
-use rom::ROM;
 use ppu::PPU;
 use opcodes::InstructionData;
+use mappers::Mapper;
 
 pub struct NES {
     cpu: CPU,
     ppu: PPU,
     ram: RAM,
-    rom: ROM,
     input_controller: InputController,
     instruction_data: [InstructionData; 256],
     cycles: usize,
+    mapper: Box<dyn Mapper>,
 }
 
 impl NES {
     pub fn new(nes_data: NESData, color_data: &[Rgb<u8>]) -> Self {
         let mut nes = Self {
             cpu: CPU::new(),
-            ppu: PPU::new(&nes_data.chr_rom, nes_data.header.nametable_arrangement, color_data),
+            ppu: PPU::new(color_data),
             ram: RAM::new(),
-            rom: ROM::new(&nes_data.prg_rom),
             input_controller: InputController::new(),
             instruction_data: InstructionData::make_instruction_table(),
             cycles: 0,
+            mapper: mappers::get_mapper(nes_data)
         };
         nes.cpu.pc = nes.read_u16(0xFFFC);
         return nes

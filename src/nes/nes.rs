@@ -77,7 +77,7 @@ impl NES {
         }
         self.cpu_tick();
         for _ in 0..(3*self.cycles) {
-            self.ppu.tick();
+            self.ppu.tick(&mut self.mapper);
         }
     }
 

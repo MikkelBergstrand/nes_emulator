@@ -43,10 +43,11 @@ pub struct NESData {
     pub header: NES2Header,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum NametableArrangement {
     Vertical,
-    Horizontal
+    Horizontal,
+    OneScreen(u8)
 }
 
 #[derive(Debug)]
@@ -137,8 +138,6 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
 
 
     // Following definitions are common for iNES and NES2.0
-    let prg_rom_size = (bytes[4] as u16) | (((bytes[9] as u16) & 0x0F) << 8);
-    let chr_rom_size =  (bytes[5] as u16) | (((bytes[9] as u16) & 0xF0) << 4);
     let nametable_arrangement = if bit_to_bool(bytes[6], 0) { NametableArrangement::Horizontal} else { NametableArrangement::Vertical };
     let nvm_present = bit_to_bool(bytes[6], 1);
     let trainer = bit_to_bool(bytes[6], 2);
@@ -150,6 +149,20 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
         | (((bytes[8] as u16) & 0x0F) << 4)
     } else {
         ((bytes[6] as u16) >> 4) | ((bytes[7] as u16) & 0xF0)
+    };
+
+    let chr_rom_size = if is_nes2 { 
+        (bytes[5] as u16) | (((bytes[9] as u16) & 0xF0) << 4)
+    }
+    else {
+       bytes[5] as u16
+    };
+
+    let prg_rom_size = if is_nes2 { 
+        (bytes[4] as u16) | (((bytes[9] as u16) & 0x0F) << 8)
+    }
+    else {
+       bytes[4] as u16
     };
     
     let console_type = if is_nes2 {
@@ -185,6 +198,14 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
         bytes[8] as u16
     };
 
+    let chr_ram_size = if is_nes2 { 
+        parse_shift_format(bytes[11] & 0xF) } 
+    else if chr_rom_size == 0 {
+        8192 // iNES assumes 8192kB CHR-RAM if CHR-ROM size is 0
+    } else {
+        0
+    };
+
     // Note that bytes 9 and 10 in iNES are not supported.
 
 
@@ -200,8 +221,8 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
         console_type,
         prg_ram_size,
         prg_nvram_size: if is_nes2 { parse_shift_format((bytes[10] & 0xF0) >> 4) } else { 0 },
-        chr_ram_size: if is_nes2 { parse_shift_format(bytes[11] & 0x0F) } else { 0 },
-        chr_nvram_size: if is_nes2 { parse_shift_format((bytes[10] & 0xF0) >> 4) } else { 0 },
+        chr_nvram_size: if is_nes2 { parse_shift_format((bytes[11] & 0xF0) >> 4) } else { 0 },
+        chr_ram_size:  chr_ram_size,
         timing_mode: if is_nes2 { timing_mode } else { TimingMode::NTSC },
         default_expansion_device: if is_nes2 { bytes[15] & 0x7F } else { 0 },
         misc_roms: if is_nes2 { bytes[14] & 0x03 } else { 0 },

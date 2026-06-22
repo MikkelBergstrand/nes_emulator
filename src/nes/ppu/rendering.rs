@@ -1,3 +1,5 @@
+use crate::nes::{mappers::Mapper};
+
 use super::{PPU, flags::{PPUCTRL, PPUMask, PPUStatus}, oam::TempSpriteInfo, sprite_buffer_memory::BufferSprite};
 
 
@@ -44,7 +46,7 @@ impl PPU {
         self.v &= 0x7FFF;
     }
 
-    fn load_background_shifters(&mut self) {
+    fn load_background_shifters(&mut self, mapper: &mut Box<dyn Mapper>) {
         let tile_address = 0x2000 | (self.v & 0x0FFF);
         let attribute_address = 0x23C0 | (self.v & 0x0C00)
             | ((self.v >> 4) & 0x38)
@@ -55,9 +57,9 @@ impl PPU {
         // 0x1000 or 0x0000, depending on CTRL flag
         let pattern_base: u16 = (self.ctrl.contains(PPUCTRL::BG_PATTERN_ADDR) as u16) << 12;
 
-        let tile =  self.addressor.read(tile_address) as u16;
+        let tile =  self.addressor.read(mapper, tile_address) as u16;
 
-        let mut attribute = self.addressor.read(attribute_address);
+        let mut attribute = self.addressor.read(mapper, attribute_address);
         if (self.v >> 5) & 0x02 != 0 { attribute >>= 4; } 
         if  self.v       & 0x02 != 0 { attribute >>= 2; }
         let attribute = attribute & 0x03;
@@ -65,8 +67,8 @@ impl PPU {
         let pattern_low_addr  = pattern_base | (tile << 4) | 0 | fine_y; 
         let pattern_high_addr = pattern_low_addr | 8; 
 
-        self.pattern_data_lb = (self.pattern_data_lb & 0xFF00) | ((self.addressor.read(pattern_low_addr) as u16));
-        self.pattern_data_hb = (self.pattern_data_hb & 0xFF00) | ((self.addressor.read(pattern_high_addr) as u16));
+        self.pattern_data_lb = (self.pattern_data_lb & 0xFF00) | ((self.addressor.read(mapper, pattern_low_addr) as u16));
+        self.pattern_data_hb = (self.pattern_data_hb & 0xFF00) | ((self.addressor.read(mapper, pattern_high_addr) as u16));
 
         let lo = if attribute & 0b01 != 0 { 0xFF } else { 0x00 };
         let hi = if attribute & 0b10 != 0 { 0xFF } else { 0x00 };
@@ -104,7 +106,7 @@ impl PPU {
     // relevant for the next scanline, and store it in 
     // temporary sprite buffers. Effectively is just a data 
     // transformation.
-    fn load_sprite_data(&mut self) {
+    fn load_sprite_data(&mut self, mapper: &mut Box<dyn Mapper>) {
         for i in 0..8 {
             let sprite = self.oam.temp_sprite_info[i];
 
@@ -123,8 +125,8 @@ impl PPU {
                 | (sprite.y_pos as u16);
             let pattern_address_hi = pattern_address_lo | 8;
             
-            let mut pattern_lo = self.addressor.read(pattern_address_lo);
-            let mut pattern_hi = self.addressor.read(pattern_address_hi);
+            let mut pattern_lo = self.addressor.read(mapper, pattern_address_lo);
+            let mut pattern_hi = self.addressor.read(mapper, pattern_address_hi);
 
             if flip_x {
                 pattern_lo = pattern_lo.reverse_bits();
@@ -144,7 +146,7 @@ impl PPU {
     }
 
     // Draw tile at (xpos, ypos)
-    fn draw_tile(&mut self, xpos: usize, ypos: usize) {
+    fn draw_tile(&mut self, mapper: &mut Box<dyn Mapper>, xpos: usize, ypos: usize) {
         let bit_mux = 0x8000u16 >> self.x;
 
         let bg_pixel = if self.mask.contains(PPUMask::BACKGROUND_RENDER_EN) {
@@ -196,7 +198,7 @@ impl PPU {
             _ => panic!("Bad MUX input"),
         };
 
-        let mut color_index = (self.addressor.read(pallette_addr)) as usize;
+        let mut color_index = (self.addressor.read(mapper, pallette_addr)) as usize;
 
         if self.mask.contains(PPUMask::GREYSCALE) {
             color_index = color_index & 0x30;
@@ -210,7 +212,7 @@ impl PPU {
         self.image_out[BYTES_PER_PIXEL*output_pixel+2] = rgb[2];
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, mapper: &mut Box<dyn Mapper>) {
         if self.mask.contains(PPUMask::SPRITE_RENDER_EN) || self.mask.contains(PPUMask::BACKGROUND_RENDER_EN) {
             if self.scanline == 261 && (280..=304).contains(&self.cycle){
                 // vert(v) = vert(t);
@@ -224,7 +226,7 @@ impl PPU {
 
                 if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
                     if self.cycle <= 256 && self.scanline < 240 {
-                        self.draw_tile(self.cycle-1, self.scanline);
+                        self.draw_tile(mapper, self.cycle-1, self.scanline);
                     }
 
                     if(1..=256).contains(&self.cycle) {
@@ -234,7 +236,7 @@ impl PPU {
                     self.update_background_shifters();
 
                     if self.cycle % 8 == 0 { 
-                        self.load_background_shifters(); 
+                        self.load_background_shifters(mapper); 
                         self.horizontal_increment();
                     }
                 }
@@ -256,12 +258,12 @@ impl PPU {
 
             if (0..=239).contains(&self.scanline) && self.cycle == 256 {
                 self.evaluate_sprites(self.scanline+1);
-                self.load_sprite_data();
+                self.load_sprite_data(mapper);
             }
         } else if (1..=256).contains(&self.cycle) && (0..240).contains(&self.scanline) {
             // We must still render nothing even when rendering is disabled
             // to wipe out the screen.
-            self.draw_tile(self.cycle-1, self.scanline);
+            self.draw_tile(mapper, self.cycle-1, self.scanline);
 
         }
 

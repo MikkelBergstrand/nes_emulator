@@ -10,7 +10,9 @@ use std::{usize};
 
 use image::Rgb;
 
-use super::{nes_parser::NametableArrangement, ppu::{flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus}, oam::OAM, sprite_buffer_memory::BufferSprite}};
+use crate::nes::mappers::Mapper;
+
+use super::ppu::{flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus}, oam::OAM, sprite_buffer_memory::BufferSprite};
 
 
 pub struct PPU {
@@ -56,7 +58,7 @@ pub struct PPU {
 }
 
 impl PPU {
-    pub fn new(chr_data: &[u8], nametable_arrangement: NametableArrangement, color_data: &[Rgb<u8>]) -> Self {
+    pub fn new(color_data: &[Rgb<u8>]) -> Self {
         Self {
             mask: PPUMask::empty(),
             status: PPUStatus::VBLANK,
@@ -75,7 +77,7 @@ impl PPU {
             w: false,
             color_data: color_data.try_into().unwrap(),
             oam: OAM::new(),
-            addressor: addressing::PPUMemoryMap::new(chr_data, nametable_arrangement),
+            addressor: addressing::PPUMemoryMap::new(),
             image_out: vec![0u8; rendering::IMG_SIZE],
             image_ready: true,
             ppu_read_buffer: 0,
@@ -89,7 +91,7 @@ impl PPU {
         }
     }
 
-    pub fn write(&mut self, addr: u8, data: u8) {
+    pub fn write(&mut self, mapper: &mut Box<dyn Mapper>, addr: u8, data: u8) {
         match addr {
             PPUReg::CTRL => {
                 self.ctrl = PPUCTRL::from_bits_retain(data); 
@@ -136,7 +138,7 @@ impl PPU {
             PPUReg::DATA => {
                 // TODO: this behavior only models PPU r/ws when *not* rendering
                 // When rendering, the behavior is different, see wiki.
-                self.addressor.write(self.v, data);
+                self.addressor.write(mapper, self.v, data);
                 self.v = self.v.wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) { 32 } else { 1 }) & 0x7FFF;
                 
             }
@@ -151,7 +153,7 @@ impl PPU {
         self.oam.from_dma(offset, &data);
     }
 
-    pub fn read(&mut self, addr: u8) -> u8 {
+    pub fn read(&mut self, mapper: &mut Box<dyn Mapper>, addr: u8) -> u8 {
         let ret = match addr { 
             PPUReg::CTRL => { 
                 self.ctrl.bits()
@@ -169,11 +171,11 @@ impl PPU {
             PPUReg::ADDR => { self.addr }
             PPUReg::DATA => { 
                 let ret = if self.v >= 0x3000 {
-                    self.ppu_read_buffer = self.addressor.read(self.v - 0x1000);
-                    self.addressor.read(self.v)
+                    self.ppu_read_buffer = self.addressor.read(mapper, self.v - 0x1000);
+                    self.addressor.read(mapper, self.v)
                 } else {
                     let buf = self.ppu_read_buffer;
-                    self.ppu_read_buffer = self.addressor.read(self.v);
+                    self.ppu_read_buffer = self.addressor.read(mapper, self.v);
                     buf
                 };
                 self.v = self.v.wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) { 32 } else { 1 }) & 0x7FFF;
