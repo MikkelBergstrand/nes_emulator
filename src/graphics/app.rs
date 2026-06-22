@@ -256,8 +256,8 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.nes.set_controller_state(self.inputs.get_input_byte().bits());
         while !self.nes.image_ready() {
+            self.nes.set_controller_state(self.inputs.get_input_byte().bits());
             self.nes.tick();
         }
         self.texture_data = self.nes.get_image_bytes().to_vec();

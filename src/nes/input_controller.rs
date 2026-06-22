@@ -16,7 +16,9 @@ impl InputController {
     }    
 
     pub fn set_controller_state(&mut self, state: u8) {
-        self.inputs = state;
+        if self.strobe {
+            self.inputs = state;
+        }
     }
 
     // TODO: implement support for controller 2 
