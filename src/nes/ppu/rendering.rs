@@ -1,19 +1,22 @@
-use crate::nes::{mappers::Mapper};
+use crate::nes::mappers::Mapper;
 
-use super::{PPU, flags::{PPUCTRL, PPUMask, PPUStatus}, oam::TempSpriteInfo, sprite_buffer_memory::BufferSprite};
-
+use super::{
+    PPU,
+    flags::{PPUCTRL, PPUMask, PPUStatus},
+    oam::TempSpriteInfo,
+    sprite_buffer_memory::BufferSprite,
+};
 
 pub const IMG_WIDTH: usize = 256;
 pub const IMG_HEIGHT: usize = 240;
 pub const BYTES_PER_PIXEL: usize = 4;
-pub const IMG_SIZE: usize = IMG_HEIGHT*IMG_WIDTH*BYTES_PER_PIXEL;
-
+pub const IMG_SIZE: usize = IMG_HEIGHT * IMG_WIDTH * BYTES_PER_PIXEL;
 
 impl PPU {
     // X-increment. PPU does this after every tile render, including
     // on the pre-render scanline
     fn horizontal_increment(&mut self) {
-        if (self.v & 0x001F) == 31  {
+        if (self.v & 0x001F) == 31 {
             self.v &= !0x001F;
             self.v ^= 0x0400;
         } else {
@@ -21,10 +24,9 @@ impl PPU {
         }
 
         self.v &= 0x7FFF;
-
     }
 
-    // Y-increment. PPU does this after every rendered scanline, 
+    // Y-increment. PPU does this after every rendered scanline,
     // including the pre-render scanline.
     fn vertical_increment(&mut self) {
         if (self.v & 0x7000) != 0x7000 {
@@ -32,7 +34,7 @@ impl PPU {
         } else {
             self.v &= !0x7000;
             let mut y = (self.v & 0x03E0) >> 5;
-            if y == 29 { 
+            if y == 29 {
                 y = 0;
                 self.v ^= 0x0800;
             } else if y == 31 {
@@ -48,27 +50,32 @@ impl PPU {
 
     fn load_background_shifters(&mut self, mapper: &mut Box<dyn Mapper>) {
         let tile_address = 0x2000 | (self.v & 0x0FFF);
-        let attribute_address = 0x23C0 | (self.v & 0x0C00)
-            | ((self.v >> 4) & 0x38)
-            | ((self.v >> 2) & 0x07);
+        let attribute_address =
+            0x23C0 | (self.v & 0x0C00) | ((self.v >> 4) & 0x38) | ((self.v >> 2) & 0x07);
 
         let fine_y = (self.v >> 12) & 0x07;
 
         // 0x1000 or 0x0000, depending on CTRL flag
         let pattern_base: u16 = (self.ctrl.contains(PPUCTRL::BG_PATTERN_ADDR) as u16) << 12;
 
-        let tile =  self.addressor.read(mapper, tile_address) as u16;
+        let tile = self.addressor.read(mapper, tile_address) as u16;
 
         let mut attribute = self.addressor.read(mapper, attribute_address);
-        if (self.v >> 5) & 0x02 != 0 { attribute >>= 4; } 
-        if  self.v       & 0x02 != 0 { attribute >>= 2; }
+        if (self.v >> 5) & 0x02 != 0 {
+            attribute >>= 4;
+        }
+        if self.v & 0x02 != 0 {
+            attribute >>= 2;
+        }
         let attribute = attribute & 0x03;
 
-        let pattern_low_addr  = pattern_base | (tile << 4) | 0 | fine_y; 
-        let pattern_high_addr = pattern_low_addr | 8; 
+        let pattern_low_addr = pattern_base | (tile << 4) | 0 | fine_y;
+        let pattern_high_addr = pattern_low_addr | 8;
 
-        self.pattern_data_lb = (self.pattern_data_lb & 0xFF00) | ((self.addressor.read(mapper, pattern_low_addr) as u16));
-        self.pattern_data_hb = (self.pattern_data_hb & 0xFF00) | ((self.addressor.read(mapper, pattern_high_addr) as u16));
+        self.pattern_data_lb = (self.pattern_data_lb & 0xFF00)
+            | (self.addressor.read(mapper, pattern_low_addr) as u16);
+        self.pattern_data_hb = (self.pattern_data_hb & 0xFF00)
+            | (self.addressor.read(mapper, pattern_high_addr) as u16);
 
         let lo = if attribute & 0b01 != 0 { 0xFF } else { 0x00 };
         let hi = if attribute & 0b10 != 0 { 0xFF } else { 0x00 };
@@ -77,9 +84,8 @@ impl PPU {
         self.attribute_data_hb = (self.attribute_data_hb & 0xFF00) | hi;
     }
 
-
     // Shift data in shift registers to get the next background pixel.
-    fn update_background_shifters(&mut self)  {
+    fn update_background_shifters(&mut self) {
         self.pattern_data_lb <<= 1;
         self.pattern_data_hb <<= 1;
         self.attribute_data_lb <<= 1;
@@ -95,7 +101,7 @@ impl PPU {
                 self.sprite_buffer_data[i].pattern_lo <<= 1;
                 self.sprite_buffer_data[i].pattern_hi <<= 1;
             } else {
-                // Wait for x-coordinate to align with 
+                // Wait for x-coordinate to align with
                 // current pixel
                 self.sprite_buffer_data[i].x -= 1;
             }
@@ -103,8 +109,8 @@ impl PPU {
     }
 
     // Take data from secondary OAM, which contains the sprite data
-    // relevant for the next scanline, and store it in 
-    // temporary sprite buffers. Effectively is just a data 
+    // relevant for the next scanline, and store it in
+    // temporary sprite buffers. Effectively is just a data
     // transformation.
     fn load_sprite_data(&mut self, mapper: &mut Box<dyn Mapper>) {
         for i in 0..8 {
@@ -115,16 +121,14 @@ impl PPU {
             let pallette_idx = sprite.attributes & 0x03;
             let priority = (sprite.attributes & 0x20) != 0;
 
-
             //Assume 8x8 sprite, TODO implement 8x16 logic.
             // bit 3 of PPUCTRL index pattern table base
             // y_idx: row offset into pattern table
             let pattern_base = (self.ctrl.contains(PPUCTRL::SPRITE_PATTERN_ADDR) as u16) << 12;
-            let pattern_address_lo = pattern_base
-                | ((sprite.tile_index as u16) << 4) 
-                | (sprite.y_pos as u16);
+            let pattern_address_lo =
+                pattern_base | ((sprite.tile_index as u16) << 4) | (sprite.y_pos as u16);
             let pattern_address_hi = pattern_address_lo | 8;
-            
+
             let mut pattern_lo = self.addressor.read(mapper, pattern_address_lo);
             let mut pattern_hi = self.addressor.read(mapper, pattern_address_hi);
 
@@ -133,15 +137,14 @@ impl PPU {
                 pattern_hi = pattern_hi.reverse_bits();
             }
 
-            self.sprite_buffer_data[i] = BufferSprite{
-                x:  self.oam.temp_sprite_info[i].x_pos,
-                pattern_lo: pattern_lo, 
-                pattern_hi: pattern_hi, 
+            self.sprite_buffer_data[i] = BufferSprite {
+                x: self.oam.temp_sprite_info[i].x_pos,
+                pattern_lo: pattern_lo,
+                pattern_hi: pattern_hi,
                 pallette: pallette_idx,
                 priority: priority as u8,
                 is_sprite_0: sprite.is_sprite_0,
             };
-
         }
     }
 
@@ -153,7 +156,7 @@ impl PPU {
             let p0 = ((self.pattern_data_lb & bit_mux) != 0) as u8;
             let p1 = ((self.pattern_data_hb & bit_mux) != 0) as u8;
             p1 << 1 | p0
-        } else { 
+        } else {
             0
         };
 
@@ -167,7 +170,9 @@ impl PPU {
 
         if self.mask.contains(PPUMask::SPRITE_RENDER_EN) {
             for i in 0..8 {
-                if self.sprite_buffer_data[i].x != 0 { continue; }
+                if self.sprite_buffer_data[i].x != 0 {
+                    continue;
+                }
 
                 // First visible sprite in buffer memory gets priority
                 if sprite_pix == 0 {
@@ -190,10 +195,10 @@ impl PPU {
 
         // MUX - determine if picking sprite, background, or backdrop (neither)
         let pallette_addr = match (bg_pixel, sprite_pix, sprite_priority) {
-            (0, 0, _) =>             0x3F00,
-            (0, 1..=3, _) =>         0x3F10 | ((sprite_pallette as u16) << 2) | (sprite_pix as u16),
-            (1..=3, 0, _) =>         0x3F00 | ((attr as u16) << 2) | (bg_pixel as u16),
-            (1..=3, 1..=3, true) =>  0x3F00 | ((attr as u16) << 2) | (bg_pixel as u16),
+            (0, 0, _) => 0x3F00,
+            (0, 1..=3, _) => 0x3F10 | ((sprite_pallette as u16) << 2) | (sprite_pix as u16),
+            (1..=3, 0, _) => 0x3F00 | ((attr as u16) << 2) | (bg_pixel as u16),
+            (1..=3, 1..=3, true) => 0x3F00 | ((attr as u16) << 2) | (bg_pixel as u16),
             (1..=3, 1..=3, false) => 0x3F10 | ((sprite_pallette as u16) << 2) | (sprite_pix as u16),
             _ => panic!("Bad MUX input"),
         };
@@ -204,47 +209,48 @@ impl PPU {
             color_index = color_index & 0x30;
         }
         let rgb = self.color_data[color_index];
-        
-        let output_pixel = (ypos as usize)*IMG_WIDTH + (xpos as usize);
 
-        self.image_out[BYTES_PER_PIXEL*output_pixel+0] = rgb[0];
-        self.image_out[BYTES_PER_PIXEL*output_pixel+1] = rgb[1];
-        self.image_out[BYTES_PER_PIXEL*output_pixel+2] = rgb[2];
+        let output_pixel = (ypos as usize) * IMG_WIDTH + (xpos as usize);
+
+        self.image_out[BYTES_PER_PIXEL * output_pixel + 0] = rgb[0];
+        self.image_out[BYTES_PER_PIXEL * output_pixel + 1] = rgb[1];
+        self.image_out[BYTES_PER_PIXEL * output_pixel + 2] = rgb[2];
     }
 
     pub fn tick(&mut self, mapper: &mut Box<dyn Mapper>) {
-        if self.mask.contains(PPUMask::SPRITE_RENDER_EN) || self.mask.contains(PPUMask::BACKGROUND_RENDER_EN) {
-            if self.scanline == 261 && (280..=304).contains(&self.cycle){
+        if self.mask.contains(PPUMask::SPRITE_RENDER_EN)
+            || self.mask.contains(PPUMask::BACKGROUND_RENDER_EN)
+        {
+            if self.scanline == 261 && (280..=304).contains(&self.cycle) {
                 // vert(v) = vert(t);
                 self.v = (self.v & !0x7BE0) | (self.t & 0x7BE0);
             }
 
             if (0..=239).contains(&self.scanline) || self.scanline == 261 {
-
                 if (1..=256).contains(&self.cycle) || (321..=336).contains(&self.cycle) {
                     if self.cycle <= 256 && self.scanline < 240 {
-                        self.draw_tile(mapper, self.cycle-1, self.scanline);
+                        self.draw_tile(mapper, self.cycle - 1, self.scanline);
                     }
 
-                    if(1..=256).contains(&self.cycle) {
+                    if (1..=256).contains(&self.cycle) {
                         self.update_sprite_buffers();
                     }
 
                     self.update_background_shifters();
 
-                    if self.cycle % 8 == 0 { 
-                        self.load_background_shifters(mapper); 
+                    if self.cycle % 8 == 0 {
+                        self.load_background_shifters(mapper);
                         self.horizontal_increment();
                     }
                 }
-                
+
                 if self.cycle == 256 {
                     self.vertical_increment();
                 }
 
-                if self.cycle == 257 { 
+                if self.cycle == 257 {
                     //horiz(v) = horiz(t);
-                    self.v = (self.v & !0x041F) | (self.t & 0x041F); 
+                    self.v = (self.v & !0x041F) | (self.t & 0x041F);
                 }
 
                 //OAMADDR behavior
@@ -254,17 +260,19 @@ impl PPU {
             }
 
             if ((0..240).contains(&self.scanline) || self.scanline == 261) && self.cycle == 256 {
-                self.oam.clear_secondary_oam();
-                self.evaluate_sprites(self.scanline+1);
+                self.clear_sprite_data();
+                self.evaluate_sprites(if self.scanline == 261 {
+                    0
+                } else {
+                    self.scanline
+                });
                 self.load_sprite_data(mapper);
             }
         } else if (1..=256).contains(&self.cycle) && (0..240).contains(&self.scanline) {
             // We must still render nothing even when rendering is disabled
             // to wipe out the screen.
-            self.draw_tile(mapper, self.cycle-1, self.scanline);
-
+            self.draw_tile(mapper, self.cycle - 1, self.scanline);
         }
-
 
         if self.scanline == 241 && self.cycle == 1 {
             // Set vblank flag
@@ -285,7 +293,6 @@ impl PPU {
             self.status.remove(PPUStatus::SPRITE0_HIT);
             self.status.remove(PPUStatus::SPRITE_OVERFLOW);
             self.image_ready = false;
-
         }
 
         self.cycle += 1;
@@ -298,24 +305,30 @@ impl PPU {
         }
     }
 
+    fn clear_sprite_data(&mut self) {
+        self.oam.clear_secondary_oam();
+        //self.sprite_buffer_data = [BufferSprite::new(); 8];
+    }
+
     pub fn evaluate_sprites(&mut self, scanline: usize) {
-        
-        let mut found = 0;  
+        let mut found = 0;
         let mut n = 0;
+        let sprite_height = self.ctrl.sprite_height();
 
         while n < 256 {
             let y_pos = self.oam.sprites[n];
             // 9-bit difference of scanline and sprite y_pos
-            let cmp = (scanline as u16).wrapping_sub((y_pos.wrapping_add(1)) as u16) as u8;
+            let cmp = (scanline as i16) - (y_pos as i16);
 
             // Check if scanline intersects sprite
-            if cmp < 8 {
-                let flip_y = (self.oam.sprites[n+2] & 0x80) != 0;
+            if cmp >= 0 && cmp < sprite_height.into() {
+                let cmp = cmp as u8;
+                let flip_y = (self.oam.sprites[n + 2] & 0x80) != 0;
                 self.oam.temp_sprite_info[found] = TempSpriteInfo {
-                    y_pos: if flip_y { 7 - cmp } else { cmp }, // Flip y_pos bits if flip
-                    tile_index: self.oam.sprites[n+1],
-                    attributes: self.oam.sprites[n+2],
-                    x_pos:      self.oam.sprites[n+3],
+                    y_pos: if flip_y { sprite_height - 1 - cmp } else { cmp },
+                    tile_index: self.oam.sprites[n + 1],
+                    attributes: self.oam.sprites[n + 2],
+                    x_pos: self.oam.sprites[n + 3],
                     is_sprite_0: n == 0,
                 };
                 found += 1;
@@ -326,20 +339,19 @@ impl PPU {
             }
         }
 
-        // Step 3: Now prite memory is full.
+        // Step 3: Now sprite memory is full.
         // This step is intended to set the sprite overflow flag.
         // The routine on the NES is buggy and does not work as intended.
         while n < 256 {
             let y_pos = self.oam.sprites[n];
 
-            let cmp = (self.scanline as u16).wrapping_sub((y_pos) as u16);
-            if cmp < 8 {
+            let cmp = (scanline as i16) - (y_pos as i16);
+            if cmp >= 0 && cmp < sprite_height.into() {
                 self.status.insert(PPUStatus::SPRITE_OVERFLOW);
                 n += 4;
             } else {
-                n += 5; 
+                n += 5;
             }
-
         }
     }
 }

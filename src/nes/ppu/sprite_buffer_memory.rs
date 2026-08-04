@@ -10,6 +10,13 @@ pub struct BufferSprite {
 
 impl BufferSprite {
     pub fn new() -> Self {
-        BufferSprite { pattern_hi: 0, pattern_lo: 0, pallette: 0, priority: 0, x: 0, is_sprite_0: false }
+        BufferSprite {
+            pattern_hi: 0,
+            pattern_lo: 0,
+            pallette: 0,
+            priority: 0,
+            x: 0,
+            is_sprite_0: false,
+        }
     }
 }
