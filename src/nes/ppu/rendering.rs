@@ -94,7 +94,7 @@ impl PPU {
 
     // Shift relevant sprite register to get the next sprite pixel.
     fn update_sprite_buffers(&mut self) {
-        for i in 0..8 {
+        for i in 0..self.num_sprites {
             if self.sprite_buffer_data[i].x == 0 {
                 // Sprite x aligned with current pixel, or beyond
                 // When beyond, the shifters only emit zeros.
@@ -113,7 +113,7 @@ impl PPU {
     // temporary sprite buffers. Effectively is just a data
     // transformation.
     fn load_sprite_data(&mut self, mapper: &mut Box<dyn Mapper>) {
-        for i in 0..8 {
+        for i in 0..self.num_sprites {
             let sprite = self.oam.temp_sprite_info[i];
 
             let flip_x = (sprite.attributes & 0x40) != 0;
@@ -169,7 +169,7 @@ impl PPU {
         let mut sprite_pallette = 0;
 
         if self.mask.contains(PPUMask::SPRITE_RENDER_EN) {
-            for i in 0..8 {
+            for i in 0..self.num_sprites {
                 if self.sprite_buffer_data[i].x != 0 {
                     continue;
                 }
@@ -261,11 +261,16 @@ impl PPU {
 
             if ((0..240).contains(&self.scanline) || self.scanline == 261) && self.cycle == 256 {
                 self.clear_sprite_data();
-                self.evaluate_sprites(if self.scanline == 261 {
-                    0
-                } else {
-                    self.scanline
-                });
+                let (n_sprites, overflow) = self.oam.evaluate_sprites(
+                    if self.scanline == 261 {
+                        0
+                    } else {
+                        self.scanline
+                    },
+                    self.ctrl.sprite_height(),
+                );
+                self.num_sprites = n_sprites as usize;
+                self.status.set(PPUStatus::SPRITE_OVERFLOW, overflow);
                 self.load_sprite_data(mapper);
             }
         } else if (1..=256).contains(&self.cycle) && (0..240).contains(&self.scanline) {
@@ -307,51 +312,5 @@ impl PPU {
 
     fn clear_sprite_data(&mut self) {
         self.oam.clear_secondary_oam();
-        //self.sprite_buffer_data = [BufferSprite::new(); 8];
-    }
-
-    pub fn evaluate_sprites(&mut self, scanline: usize) {
-        let mut found = 0;
-        let mut n = 0;
-        let sprite_height = self.ctrl.sprite_height();
-
-        while n < 256 {
-            let y_pos = self.oam.sprites[n];
-            // 9-bit difference of scanline and sprite y_pos
-            let cmp = (scanline as i16) - (y_pos as i16);
-
-            // Check if scanline intersects sprite
-            if cmp >= 0 && cmp < sprite_height.into() {
-                let cmp = cmp as u8;
-                let flip_y = (self.oam.sprites[n + 2] & 0x80) != 0;
-                self.oam.temp_sprite_info[found] = TempSpriteInfo {
-                    y_pos: if flip_y { sprite_height - 1 - cmp } else { cmp },
-                    tile_index: self.oam.sprites[n + 1],
-                    attributes: self.oam.sprites[n + 2],
-                    x_pos: self.oam.sprites[n + 3],
-                    is_sprite_0: n == 0,
-                };
-                found += 1;
-            }
-            n += 4;
-            if found >= 8 {
-                break;
-            }
-        }
-
-        // Step 3: Now sprite memory is full.
-        // This step is intended to set the sprite overflow flag.
-        // The routine on the NES is buggy and does not work as intended.
-        while n < 256 {
-            let y_pos = self.oam.sprites[n];
-
-            let cmp = (scanline as i16) - (y_pos as i16);
-            if cmp >= 0 && cmp < sprite_height.into() {
-                self.status.insert(PPUStatus::SPRITE_OVERFLOW);
-                n += 4;
-            } else {
-                n += 5;
-            }
-        }
     }
 }

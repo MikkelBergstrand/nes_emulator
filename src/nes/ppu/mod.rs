@@ -1,19 +1,22 @@
-pub mod pattern_table;
-mod flags;
 mod addressing;
-mod rendering;
+mod flags;
 mod oam;
+pub mod pattern_table;
+mod rendering;
 mod sprite_buffer_memory;
 
 use core::panic;
-use std::{usize};
+use std::usize;
 
 use image::Rgb;
 
 use crate::nes::mappers::Mapper;
 
-use super::ppu::{flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus}, oam::OAM, sprite_buffer_memory::BufferSprite};
-
+use super::ppu::{
+    flags::{PPUCTRL, PPUMask, PPUReg, PPUStatus},
+    oam::OAM,
+    sprite_buffer_memory::BufferSprite,
+};
 
 pub struct PPU {
     color_data: [Rgb<u8>; 64],
@@ -27,11 +30,11 @@ pub struct PPU {
     addressor: addressing::PPUMemoryMap,
     oam: OAM,
     // Internal registers
-    v: u16, // Current VRAM address (15 bits)
-    t: u16, // Temporary VRAM address (15 bits)
-    x: u8,  // Fine X scroll (3 bits)
-    w: bool,  // 1st or 2nd write toggle
-              //
+    v: u16,  // Current VRAM address (15 bits)
+    t: u16,  // Temporary VRAM address (15 bits)
+    x: u8,   // Fine X scroll (3 bits)
+    w: bool, // 1st or 2nd write toggle
+    //
     cycle: usize, // Rendering cycle
     scanline: usize,
 
@@ -40,8 +43,9 @@ pub struct PPU {
     pattern_data_lb: u16,
     pattern_data_hb: u16,
 
-    sprite_buffer_data: [BufferSprite; 8],
-    
+    sprite_buffer_data: [BufferSprite; 8], // Storage for sprites visible on current scanline.
+    num_sprites: usize,                    // Number of sprites visible on current scanline
+
     attribute_data_lb: u16,
     attribute_data_hb: u16,
 
@@ -83,6 +87,7 @@ impl PPU {
             ppu_read_buffer: 0,
 
             sprite_buffer_data: [BufferSprite::new(); 8],
+            num_sprites: 0,
 
             pattern_data_lb: 0,
             pattern_data_hb: 0,
@@ -94,34 +99,37 @@ impl PPU {
     pub fn write(&mut self, mapper: &mut Box<dyn Mapper>, addr: u8, data: u8) {
         match addr {
             PPUReg::CTRL => {
-                self.ctrl = PPUCTRL::from_bits_retain(data); 
+                self.ctrl = PPUCTRL::from_bits_retain(data);
                 self.t = (self.t & !0x0C00) | ((data as u16 & 0x3) << 10);
             }
-            PPUReg::MASK => { self.mask = PPUMask::from_bits_retain(data); }
-            PPUReg::STATUS => {  }
-            PPUReg::OAMADDR => { self.oam_addr = data; }
+            PPUReg::MASK => {
+                self.mask = PPUMask::from_bits_retain(data);
+            }
+            PPUReg::STATUS => {}
+            PPUReg::OAMADDR => {
+                self.oam_addr = data;
+            }
             PPUReg::OAMDATA => {
                 self.oam.sprites[self.oam_addr as usize] = data;
                 self.oam_addr = self.oam_addr.wrapping_add(1);
             }
-            PPUReg::SCROLL => {  
+            PPUReg::SCROLL => {
                 // Writes to scroll changes xscroll and yscroll
                 // depending on the order of writes.
-                if self.w  {
+                if self.w {
                     self.yscroll = data;
-                    self.t = (self.t & !0x73E0)  |
-                        (((data & 0x07) as u16) << 12) | 
-                        (((data >> 3) as u16 & 0x1F) << 5);
-
+                    self.t = (self.t & !0x73E0)
+                        | (((data & 0x07) as u16) << 12)
+                        | (((data >> 3) as u16 & 0x1F) << 5);
                 } else {
                     self.xscroll = data;
                     self.x = data & 0x07;
-                    self.t = (self.t & 0xFFE0) |  ((data >> 3) as u16);
+                    self.t = (self.t & 0xFFE0) | ((data >> 3) as u16);
                 }
                 self.w = !self.w;
             }
-            PPUReg::ADDR => { 
-                self.addr = data; 
+            PPUReg::ADDR => {
+                self.addr = data;
 
                 //Like PPUSCROLL, writing depends on the state of w
                 //Effectively, the high and low byte is set on every other write
@@ -139,37 +147,41 @@ impl PPU {
                 // TODO: this behavior only models PPU r/ws when *not* rendering
                 // When rendering, the behavior is different, see wiki.
                 self.addressor.write(mapper, self.v, data);
-                self.v = self.v.wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) { 32 } else { 1 }) & 0x7FFF;
-                
+                self.v = self
+                    .v
+                    .wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) {
+                        32
+                    } else {
+                        1
+                    })
+                    & 0x7FFF;
             }
-            _ => panic!("Bad PPU address")
+            _ => panic!("Bad PPU address"),
         }
 
         //println!("Writing to {:04X} = {:02X}", addr, data);
     }
 
     //Writing to address 0x4014 is OAMDMA
-    pub fn write_oam_dma(&mut self, data: &[u8], offset: u8) { 
+    pub fn write_oam_dma(&mut self, data: &[u8], offset: u8) {
         self.oam.from_dma(offset, &data);
     }
 
     pub fn read(&mut self, mapper: &mut Box<dyn Mapper>, addr: u8) -> u8 {
-        let ret = match addr { 
-            PPUReg::CTRL => { 
-                self.ctrl.bits()
-            } 
-            PPUReg::MASK => { self.mask.bits() }
-            PPUReg::STATUS => { 
+        let ret = match addr {
+            PPUReg::CTRL => self.ctrl.bits(),
+            PPUReg::MASK => self.mask.bits(),
+            PPUReg::STATUS => {
                 self.w = false;
                 let temp = self.status.bits();
                 self.status &= PPUStatus::VBLANK;
                 temp
             }
-            PPUReg::OAMADDR => { self.oam_addr }
-            PPUReg::OAMDATA => { self.oam.sprites[self.oam_addr as usize] }
-            PPUReg::SCROLL => { self.xscroll }
-            PPUReg::ADDR => { self.addr }
-            PPUReg::DATA => { 
+            PPUReg::OAMADDR => self.oam_addr,
+            PPUReg::OAMDATA => self.oam.sprites[self.oam_addr as usize],
+            PPUReg::SCROLL => self.xscroll,
+            PPUReg::ADDR => self.addr,
+            PPUReg::DATA => {
                 let ret = if self.v >= 0x3000 {
                     self.ppu_read_buffer = self.addressor.read(mapper, self.v - 0x1000);
                     self.addressor.read(mapper, self.v)
@@ -178,20 +190,33 @@ impl PPU {
                     self.ppu_read_buffer = self.addressor.read(mapper, self.v);
                     buf
                 };
-                self.v = self.v.wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) { 32 } else { 1 }) & 0x7FFF;
+                self.v = self
+                    .v
+                    .wrapping_add(if self.ctrl.contains(PPUCTRL::VRAM_INCREMENT) {
+                        32
+                    } else {
+                        1
+                    })
+                    & 0x7FFF;
                 ret
             }
-            _ => panic!("Bad PPU address")
+            _ => panic!("Bad PPU address"),
         };
         //println!("Reading from {} = {}", addr, ret);
         ret
     }
 
-    pub fn pending_nmi(&self) -> bool { self.pending_nmi }
-    pub fn clear_nmi(&mut self) { self.pending_nmi = false; self.nmi_lineout = false; }
+    pub fn pending_nmi(&self) -> bool {
+        self.pending_nmi
+    }
+    pub fn clear_nmi(&mut self) {
+        self.pending_nmi = false;
+        self.nmi_lineout = false;
+    }
 
-    pub fn get_image_bytes(&mut self) -> &Vec<u8> { 
-        self.image_ready = false; return &self.image_out;
+    pub fn get_image_bytes(&mut self) -> &Vec<u8> {
+        self.image_ready = false;
+        return &self.image_out;
     }
 
     // **
@@ -209,6 +234,7 @@ impl PPU {
     //fn enable_background(&self) -> bool { return (self.mask & 0x08) != 0; }
     //fn enable_sprites(&self) -> bool    { return (self.mask & 0x10) != 0; }
 
-
-    pub fn image_ready(&self) -> bool { return self.image_ready; }
+    pub fn image_ready(&self) -> bool {
+        return self.image_ready;
+    }
 }
