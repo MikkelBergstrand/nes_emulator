@@ -9,6 +9,7 @@ impl APU {
             0x4015 => {
                 self.status = data;
             }
+            0x4017 => self.set_frame_counter(data),
             _ => (),
         }
     }

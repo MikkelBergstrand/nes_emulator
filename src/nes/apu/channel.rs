@@ -1,3 +1,16 @@
+use crate::nes::apu::LENGTH_COUNTER_TABLE;
+
+// Defines the output of the sequencer
+// First index is by duty cycle mode, which may be set by writing to 0x4000 or 0x4004
+// Second index is the current sequencer step.
+// The sequencer is clocked every time the timer value (t) wraps around to zero, see tick()
+const PULSE_SEQUENCER: &[&[u8]] = &[
+    &[0, 1, 0, 0, 0, 0, 0, 0], //12.5%
+    &[0, 1, 1, 0, 0, 0, 0, 0], //25%
+    &[0, 1, 1, 1, 1, 0, 0, 0], //50%
+    &[1, 0, 0, 1, 1, 1, 1, 1], //25% negated
+];
+
 pub struct PulseChannel {
     duty: u8,
     envelope_loop: bool,
@@ -12,6 +25,8 @@ pub struct PulseChannel {
     timer_max: u16,
     timer: u16,
     length_counter: u8,
+
+    sequencer_step: u8,
 }
 
 impl PulseChannel {
@@ -28,6 +43,7 @@ impl PulseChannel {
             timer_max: 0,
             timer: 0,
             length_counter: 0,
+            sequencer_step: 0,
         }
     }
 
@@ -45,10 +61,13 @@ impl PulseChannel {
                 self.sweep_negate = (data & 0x08) != 0;
                 self.sweep_shift = data & 0x07;
             }
-            2 => self.timer_max = (self.timer_max & 0xF0) | (data as u16),
+            2 => self.timer_max = (self.timer_max & 0xFF00) | (data as u16),
             3 => {
-                self.timer_max = (((data & 0x07) as u16) << 8) | ((self.timer_max as u16) & 0x0F);
-                self.length_counter = data & 0xF8;
+                self.timer_max = (((data & 0x07) as u16) << 8) | (self.timer_max & 0x00FF);
+                self.length_counter = LENGTH_COUNTER_TABLE[((data & 0xF8) >> 3) as usize];
+
+                // Side effects of write
+                self.sequencer_step = 0;
             }
             _ => panic!("PulseChannel invalid address"),
         }
@@ -60,8 +79,17 @@ impl PulseChannel {
             return;
         }
 
-        self.timer = (self.timer.wrapping_sub(1)) % (self.timer_max + 1);
+        // Clock the sequencer on the transition from 0 to timer_max
+        // timer goes t, t-1, ..., 0, t, where t = self.timer_max
+        if self.timer == 0 {
+            self.sequencer_step = (self.sequencer_step + 1) % 8;
+            self.timer = self.timer_max;
+        } else {
+            self.timer -= 1;
+        }
+    }
 
+    pub fn tick_length_counter(&mut self) {
         if self.length_counter > 0 && !self.envelope_loop {
             self.length_counter -= 1;
         }
@@ -71,17 +99,13 @@ impl PulseChannel {
         self.length_counter > 0 && self.timer_max >= 8
     }
 
-    fn duty_cycle(&self) -> f32 {
-        match self.duty {
-            0 => 0.125,
-            1 => 0.25,
-            2 => 0.5,
-            3 => 0.75,
-            _ => panic!("Bad duty cycle param"),
-        }
-    }
-
     pub fn get_output(&self) -> f32 {
-        if self.enabled() { 1.0 } else { 0.0 }
+        if self.enabled() {
+            // PULSE_SEQUENCER contains the  current duty mode (0-3) and the
+            // current sequencer step, which is an 8-step looping sequence
+            PULSE_SEQUENCER[self.duty as usize][self.sequencer_step as usize] as f32
+        } else {
+            0.0
+        }
     }
 }
