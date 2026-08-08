@@ -86,7 +86,7 @@ impl NES {
         self.input_controller.set_controller_state(state);
     }
 
-    pub fn sound_output(&self) -> f32 {
+    pub fn sound_output(&self) -> u16 {
         self.apu.get_output()
     }
 

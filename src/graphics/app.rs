@@ -305,7 +305,7 @@ impl State {
             self.nes.tick();
 
             clock = (self.nes.cycles() - frame_start) as u32;
-            let output = (self.nes.sound_output() * AMPLITUDE) as i32;
+            let output = (self.nes.sound_output()) as i32;
             self.apu_sink.push_sample(clock, output);
         }
 

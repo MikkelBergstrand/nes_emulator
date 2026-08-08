@@ -2,6 +2,7 @@ use crate::nes::{F_CPU, apu::channel::PulseChannel};
 
 mod adressing;
 pub mod channel;
+mod envelope;
 
 pub const F_APU: f32 = F_CPU / 2.0;
 
@@ -78,7 +79,9 @@ impl APU {
     fn tick_length_counter_and_sweep(&mut self) {
         self.pulse_channel_1.tick_length_counter();
     }
-    fn tick_envelope_and_linear_counter(&mut self) {}
+    fn tick_envelope_and_linear_counter(&mut self) {
+        self.pulse_channel_1.tick_envelope();
+    }
 
     /// Advances the frame counter by one step and applies that step's rule.
     /// This is the ~240 Hz clock the note lengths and envelopes run on, *not*
@@ -121,7 +124,7 @@ impl APU {
         }
     }
 
-    pub fn get_output(&self) -> f32 {
+    pub fn get_output(&self) -> u16 {
         self.pulse_channel_1.get_output()
     }
 }

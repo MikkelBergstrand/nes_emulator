@@ -1,4 +1,4 @@
-use crate::nes::apu::LENGTH_COUNTER_TABLE;
+use crate::nes::apu::{LENGTH_COUNTER_TABLE, envelope::Envelope};
 
 // Defines the output of the sequencer
 // First index is by duty cycle mode, which may be set by writing to 0x4000 or 0x4004
@@ -13,9 +13,6 @@ const PULSE_SEQUENCER: &[&[u8]] = &[
 
 pub struct PulseChannel {
     duty: u8,
-    envelope_loop: bool,
-    constant_vol: bool,
-    volume: u8,
 
     sweep_enabled: bool,
     sweep_period: u8,
@@ -27,15 +24,14 @@ pub struct PulseChannel {
     length_counter: u8,
 
     sequencer_step: u8,
+
+    envelope: Envelope,
 }
 
 impl PulseChannel {
     pub fn new() -> Self {
         PulseChannel {
             duty: 0,
-            envelope_loop: false,
-            constant_vol: false,
-            volume: 0,
             sweep_enabled: false,
             sweep_period: 0,
             sweep_negate: false,
@@ -44,6 +40,7 @@ impl PulseChannel {
             timer: 0,
             length_counter: 0,
             sequencer_step: 0,
+            envelope: Envelope::new(),
         }
     }
 
@@ -51,9 +48,8 @@ impl PulseChannel {
         match reg {
             0 => {
                 self.duty = (data & 0xC0) >> 6;
-                self.envelope_loop = (data & 0x20) != 0;
-                self.constant_vol = (data & 0x10) != 0;
-                self.volume = data & 0xF;
+                self.envelope
+                    .set_params((data & 0x10) != 0, data & 0xF, data & 0x20 != 0);
             }
             1 => {
                 self.sweep_enabled = (data & 0x80) != 0;
@@ -65,6 +61,7 @@ impl PulseChannel {
             3 => {
                 self.timer_max = (((data & 0x07) as u16) << 8) | (self.timer_max & 0x00FF);
                 self.length_counter = LENGTH_COUNTER_TABLE[((data & 0xF8) >> 3) as usize];
+                self.envelope.set_start();
 
                 // Side effects of write
                 self.sequencer_step = 0;
@@ -89,8 +86,12 @@ impl PulseChannel {
         }
     }
 
+    pub fn tick_envelope(&mut self) {
+        self.envelope.tick();
+    }
+
     pub fn tick_length_counter(&mut self) {
-        if self.length_counter > 0 && !self.envelope_loop {
+        if self.length_counter > 0 && !self.envelope.loop_flag() {
             self.length_counter -= 1;
         }
     }
@@ -99,13 +100,16 @@ impl PulseChannel {
         self.length_counter > 0 && self.timer_max >= 8
     }
 
-    pub fn get_output(&self) -> f32 {
+    pub fn get_output(&self) -> u16 {
         if self.enabled() {
             // PULSE_SEQUENCER contains the  current duty mode (0-3) and the
             // current sequencer step, which is an 8-step looping sequence
-            PULSE_SEQUENCER[self.duty as usize][self.sequencer_step as usize] as f32
+            // volume is determined by the envelope
+            (self.envelope.volume()
+                * PULSE_SEQUENCER[self.duty as usize][self.sequencer_step as usize])
+                as u16
         } else {
-            0.0
+            0
         }
     }
 }
