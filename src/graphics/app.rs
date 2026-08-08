@@ -1,18 +1,32 @@
+use super::texture;
+use super::vertex::{INDICES, VERTICES, Vertex};
+use crate::inputs::{InputFlag, Inputs};
+use crate::nes::NES;
+use crate::sound::{APUSink, APUSource, SoundEngine};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use crate::inputs::{InputFlag, Inputs};
-use super::texture;
-use crate::nes::NES;
-use super::{vertex::{INDICES, VERTICES, Vertex}};
 
-use image::{DynamicImage};
+use image::DynamicImage;
 use wgpu::util::DeviceExt;
 use winit::{
-    application::ApplicationHandler, event::*, event_loop::{ActiveEventLoop, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::Window
+    application::ApplicationHandler,
+    event::*,
+    event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
+    window::Window,
 };
 
 const RESOLUTION: (usize, usize) = (256, 240);
+
+// An NTSC frame is 29780.5 CPU cycles; the PPU alternates 29780/29781.
+const CYCLES_PER_FRAME: u32 = 29781;
+// Only a genuinely stalled device should trip the gate's escape hatch. Ordinary
+// scheduling jitter must not, since every escape drops audio and lets the
+// emulator run free of its clock.
+const AUDIO_STALL_TIMEOUT: Duration = Duration::from_millis(250);
+// Room left in an i16 for the other channels once they're mixed in.
+const AMPLITUDE: f32 = 8000.0;
 
 // This will store the state of our game
 pub struct State {
@@ -26,13 +40,16 @@ pub struct State {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     window: Arc<Window>,
-	diffuse_bind_group: wgpu::BindGroup,
+    diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
 
     nes: NES,
     inputs: Inputs,
     texture_data: Vec<u8>,
     t0: Instant,
+
+    sound_engine: SoundEngine,
+    apu_sink: APUSink,
 }
 
 impl State {
@@ -53,30 +70,30 @@ impl State {
 
         let surface = instance.create_surface(window.clone()).unwrap();
 
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false
-        })
-        .await?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await?;
 
-        let (device, queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-            label: None,
-            required_features: wgpu::Features::empty(),
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            required_limits: if cfg!(target_arch = "wasm32") {
-                wgpu::Limits::downlevel_webgl2_defaults() 
-            } else {
-                wgpu::Limits::default()
-            },
-            memory_hints: Default::default(),
-            trace: wgpu::Trace::Off,
-        })
-        .await?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
+            .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
 
-        let surface_format = surface_caps.formats.iter()
+        let surface_format = surface_caps
+            .formats
+            .iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(surface_caps.formats[0]);
@@ -91,11 +108,19 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
-        let texture_data = vec![0u8; RESOLUTION.0*RESOLUTION.1*4];
-        let img = DynamicImage::ImageRgba8(image::ImageBuffer::from_raw(RESOLUTION.0 as u32, RESOLUTION.1 as u32, texture_data.clone()).unwrap());
+        let texture_data = vec![0u8; RESOLUTION.0 * RESOLUTION.1 * 4];
+        let img = DynamicImage::ImageRgba8(
+            image::ImageBuffer::from_raw(
+                RESOLUTION.0 as u32,
+                RESOLUTION.1 as u32,
+                texture_data.clone(),
+            )
+            .unwrap(),
+        );
 
-        let diffuse_texture = texture::Texture::from_image(&device, &queue, &img, Some("screen_quad")).unwrap();
-		let texture_bind_group_layout =
+        let diffuse_texture =
+            texture::Texture::from_image(&device, &queue, &img, Some("screen_quad")).unwrap();
+        let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -118,31 +143,27 @@ impl State {
                     },
                 ],
                 label: Some("texture_bind_group_layout"),
-        	});
+            });
 
-		let diffuse_bind_group = device.create_bind_group(
-			&wgpu::BindGroupDescriptor {
-				layout: &texture_bind_group_layout,
-				entries: &[
-					wgpu::BindGroupEntry {
-						binding: 0,
-						resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-					},
-					wgpu::BindGroupEntry {
-						binding: 1,
-						resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-					}
-				],
-				label: Some("diffuse_bind_group"),
-			}
-		);
+        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
 
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor{
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
-
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -157,13 +178,15 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"), // 1.
-                buffers: &[Vertex::desc()], 
+                buffers: &[Vertex::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
-            fragment: Some(wgpu::FragmentState { // 3.
+            fragment: Some(wgpu::FragmentState {
+                // 3.
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState { // 4.
+                targets: &[Some(wgpu::ColorTargetState {
+                    // 4.
                     format: config.format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
@@ -184,32 +207,32 @@ impl State {
             },
             depth_stencil: None, // 1.
             multisample: wgpu::MultisampleState {
-                count: 1, // 2.
-                mask: !0, // 3.
+                count: 1,                         // 2.
+                mask: !0,                         // 3.
                 alpha_to_coverage_enabled: false, // 4.
             },
             multiview_mask: None, // 5.
-            cache: None, // 6.
+            cache: None,          // 6.
         });
 
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("vertex_buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("vertex_buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
-
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("index_buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("index_buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
 
         let num_indices = INDICES.len() as u32;
+
+        let mut sound_engine = SoundEngine::new();
+        let (apu_source, apu_sink) = APUSource::new();
+
+        sound_engine.add_source(apu_source);
 
         Ok(Self {
             surface,
@@ -228,16 +251,18 @@ impl State {
             nes: NES::from_args(),
             inputs: Inputs::new(),
             t0: Instant::now(),
+            sound_engine,
+            apu_sink,
         })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
-       if width > 0 && height > 0 {
-           self.config.width = width;
-           self.config.height = height;
-           self.surface.configure(&self.device, &self.config);
-           self.is_surface_configured = true;
-       } 
+        if width > 0 && height > 0 {
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&self.device, &self.config);
+            self.is_surface_configured = true;
+        }
     }
 
     fn handle_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, is_pressed: bool) {
@@ -256,20 +281,43 @@ impl State {
     }
 
     fn update(&mut self) {
-        while !self.nes.image_ready() {
-            self.nes.set_controller_state(self.inputs.get_input_byte().bits());
-            self.nes.tick();
+        // The sound card is the clock. Block until the ring buffer has drained
+        // enough to absorb another frame, which paces emulation at the real NES
+        // rate far more accurately than sleeping on wall time. Asking blip for
+        // clocks rather than comparing sample counts keeps the threshold exact.
+        //
+        // Every escape from this gate drops audio and lets the emulator run
+        // free, so the timeout must only trip on a genuinely dead device.
+        let deadline = Instant::now() + AUDIO_STALL_TIMEOUT;
+        while self.apu_sink.clocks_free() < CYCLES_PER_FRAME && Instant::now() < deadline {
+            sleep(Duration::from_micros(500));
         }
+
+        // blip_buf places samples by CPU clock. `tick` is one cycle, so this
+        // currently just counts iterations — but reading it off the NES keeps
+        // the timestamps right if that granularity ever changes again.
+        let frame_start = self.nes.cycles();
+        let mut clock = 0;
+
+        while !self.nes.image_ready() {
+            self.nes
+                .set_controller_state(self.inputs.get_input_byte().bits());
+            self.nes.tick();
+
+            clock = (self.nes.cycles() - frame_start) as u32;
+            let output = (self.nes.sound_output() * AMPLITUDE) as i32;
+            self.apu_sink.push_sample(clock, output);
+        }
+
+        self.apu_sink.drain(clock);
         self.texture_data = self.nes.get_image_bytes().to_vec();
-        sleep(Duration::from_micros(16667).saturating_sub(Instant::now() - self.t0));
         self.t0 = Instant::now();
     }
-    
+
     pub fn render(&mut self) -> anyhow::Result<()> {
         self.window.request_redraw();
-        
 
-        // Update texture with new pixel data 
+        // Update texture with new pixel data
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.diffuse_texture.texture,
@@ -280,42 +328,45 @@ impl State {
             &self.texture_data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(RESOLUTION.0  as u32 * 4),
+                bytes_per_row: Some(RESOLUTION.0 as u32 * 4),
                 rows_per_image: Some(RESOLUTION.1 as u32),
             },
-            wgpu::Extent3d { width: RESOLUTION.0 as u32, height: RESOLUTION.1 as u32, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: RESOLUTION.0 as u32,
+                height: RESOLUTION.1 as u32,
+                depth_or_array_layers: 1,
+            },
         );
 
         if !self.is_surface_configured {
             return Ok(());
         }
-        
+
         let output = match self.surface.get_current_texture() {
-            Ok(surface_texture) => {
-                surface_texture 
-            }
-            Err(output_err) => {
-                match output_err {
-                    wgpu::SurfaceError::Outdated => {
-                        self.surface.configure(&self.device, &self.config);
-                        return Ok(());
-                    }
-                    wgpu::SurfaceError::Timeout
-                    | wgpu::SurfaceError::Other
-                    | wgpu::SurfaceError::OutOfMemory 
-                        => return Ok(()),
-                    wgpu::SurfaceError::Lost => {
-                        anyhow::bail!("Lost device");
-                    },
+            Ok(surface_texture) => surface_texture,
+            Err(output_err) => match output_err {
+                wgpu::SurfaceError::Outdated => {
+                    self.surface.configure(&self.device, &self.config);
+                    return Ok(());
                 }
-            }
+                wgpu::SurfaceError::Timeout
+                | wgpu::SurfaceError::Other
+                | wgpu::SurfaceError::OutOfMemory => return Ok(()),
+                wgpu::SurfaceError::Lost => {
+                    anyhow::bail!("Lost device");
+                }
+            },
         };
 
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -340,11 +391,11 @@ impl State {
                 multiview_mask: None,
             });
 
-			render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-			render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         // submit will accept anything that implements IntoIter
@@ -355,21 +406,15 @@ impl State {
     }
 }
 
-
-
 pub struct App {
     state: Option<State>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self {
-            state: None,
-        }
+        Self { state: None }
     }
 }
-
-
 
 impl ApplicationHandler<State> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -378,10 +423,7 @@ impl ApplicationHandler<State> for App {
         window_attributes.title = String::from("MikkNES");
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.state = Some(pollster::block_on(State::new(window)).unwrap());
-        }
+        self.state = Some(pollster::block_on(State::new(window)).unwrap());
     }
 
     #[allow(unused_mut)]
@@ -428,17 +470,11 @@ impl ApplicationHandler<State> for App {
 }
 
 pub fn run() -> anyhow::Result<()> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        env_logger::init();
-    }
+    env_logger::init();
 
     let event_loop = EventLoop::with_user_event().build()?;
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let mut app = App::new();
-        event_loop.run_app(&mut app)?;
-    }
+    let mut app = App::new();
+    event_loop.run_app(&mut app)?;
 
     Ok(())
 }

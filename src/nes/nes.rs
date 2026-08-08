@@ -1,10 +1,13 @@
-use super::addressing::AddressingMode;
-use super::instruction::Instruction;
-use super::cpu::CPUFlags;
 use super::NES;
+use super::addressing::AddressingMode;
+use super::cpu::CPUFlags;
+use super::instruction::Instruction;
+
+/// Cycles the 6502 spends pushing PC/status and loading the vector.
+const NMI_CYCLES: usize = 7;
 
 impl NES {
-    // Wrapper for branch instructions. 
+    // Wrapper for branch instructions.
     // Returns the extra cycles incurred by the instruction:
     // 1 extra if branch taken, and 1 extra if it crosses a page
     fn branch_if(&mut self, condition: bool, addr: Option<u16>) {
@@ -27,18 +30,28 @@ impl NES {
         self.cpu.set_flag(CPUFlags::ZERO, register == value);
         self.cpu.set_flag(CPUFlags::NEGATIVE, (diff & 0x80) != 0);
 
-        if page_crossed { self.cycles += 1; }
+        if page_crossed {
+            self.cycles += 1;
+        }
     }
 
-    fn shift_rmw(&mut self, mode: AddressingMode, addr: Option<u16>, op: impl Fn(u8, bool) -> (u8, bool)) {
+    fn shift_rmw(
+        &mut self,
+        mode: AddressingMode,
+        addr: Option<u16>,
+        op: impl Fn(u8, bool) -> (u8, bool),
+    ) {
         let (value, _) = self.resolve_value_from_addressmode(mode, addr);
         let (result, carry) = op(value, self.cpu.get_flag(CPUFlags::CARRY));
         self.cpu.set_flag(CPUFlags::CARRY, carry);
         self.cpu.set_zn(result);
         match mode {
-            AddressingMode::Accumulator => { self.cpu.acc = result; }
+            AddressingMode::Accumulator => {
+                self.cpu.acc = result;
+            }
             _ => {
-                let (address, _) = self.resolve_address(mode, addr.unwrap())
+                let (address, _) = self
+                    .resolve_address(mode, addr.unwrap())
                     .expect("Invalid address mode");
                 self.write_addr(address, result);
             }
@@ -46,15 +59,15 @@ impl NES {
     }
 
     // Used by AND, ORA and EOR
-    fn bit_operation(&mut self, mode: AddressingMode, arg: Option<u16>,
-        op: impl Fn(u8, u8) -> u8) {
-
+    fn bit_operation(&mut self, mode: AddressingMode, arg: Option<u16>, op: impl Fn(u8, u8) -> u8) {
         let (memory, page_crossed) = self.resolve_value_from_addressmode(mode, arg);
 
         self.cpu.acc = op(self.cpu.acc, memory);
         self.cpu.set_zn(self.cpu.acc);
 
-        if page_crossed { self.cycles += 1; }
+        if page_crossed {
+            self.cycles += 1;
+        }
     }
 
     // Push result onto the stack. The most common way of doing so, used by e.g. PHA
@@ -69,16 +82,34 @@ impl NES {
         return result;
     }
 
-
+    /// Advances the machine by one CPU cycle.
     pub fn tick(&mut self) {
-        if self.ppu.pending_nmi() {
-            self.process_nmi();
-            self.ppu.clear_nmi();
+        if self.cycles == 0 {
+            // Interrupts are only polled between instructions, never part-way
+            // through one, or the instruction's own state gets clobbered.
+            if self.ppu.pending_nmi() {
+                self.ppu.clear_nmi();
+                self.process_nmi();
+                self.cycles = NMI_CYCLES;
+            } else {
+                // Executes the whole instruction and sets `cycles` to its total
+                // cost, page-crossing penalties included.
+                self.cpu_tick();
+            }
         }
-        self.cpu_tick();
-        for _ in 0..(3*self.cycles) {
+
+        // The tick that starts an instruction is its first cycle, not a free
+        // one on top of it.
+        self.cycles = self.cycles.saturating_sub(1);
+
+        if self.total_cycles % 2 == 0 {
+            self.apu.tick();
+        }
+
+        for _ in 0..3 {
             self.ppu.tick(&mut self.mapper);
         }
+        self.total_cycles += 1;
     }
 
     fn process_nmi(&mut self) {
@@ -103,22 +134,12 @@ impl NES {
         let arg: Option<u16> = match instruction_data.bytes {
             1 => None,
             2 => Some(self.read(self.cpu.pc.wrapping_add(1)) as u16),
-            3 => Some(((self.read(self.cpu.pc.wrapping_add(1)) as u16)) | ((self.read(self.cpu.pc.wrapping_add(2)) as u16) << 8)),
-            _ => panic!("Invalid number of bytes for opcode.")
+            3 => Some(
+                (self.read(self.cpu.pc.wrapping_add(1)) as u16)
+                    | ((self.read(self.cpu.pc.wrapping_add(2)) as u16) << 8),
+            ),
+            _ => panic!("Invalid number of bytes for opcode."),
         };
-
-
-        if !matches!(instruction_data.instruction, Instruction::JMP) && false {
-            println!("{}, C={}, D={}, Z={}, N={}, B={}, I={}", 
-                instruction_data.to_string(arg),
-                self.cpu.flag_as_u8(CPUFlags::CARRY),
-                self.cpu.flag_as_u8(CPUFlags::DECIMAL),
-                self.cpu.flag_as_u8(CPUFlags::ZERO),
-                self.cpu.flag_as_u8(CPUFlags::NEGATIVE),
-                self.cpu.flag_as_u8(CPUFlags::BREAK),
-                self.cpu.flag_as_u8(CPUFlags::IRQ)
-            );
-        }
 
         // advance program counter
         self.cpu.pc = self.cpu.pc.wrapping_add(instruction_data.bytes as u16);
@@ -132,56 +153,108 @@ impl NES {
                 // Detect overflow to set the carry bit. Bit hacky, but merge two overflowing_add
                 // operations
                 let (result, wrapped_a) = self.cpu.acc.overflowing_add(memory);
-                let (result, wrapped_b) = result.overflowing_add(self.cpu.flag_as_u8(CPUFlags::CARRY));
+                let (result, wrapped_b) =
+                    result.overflowing_add(self.cpu.flag_as_u8(CPUFlags::CARRY));
                 let wrapped = wrapped_a | wrapped_b;
 
                 self.cpu.set_flag(CPUFlags::CARRY, wrapped);
-                self.cpu.set_flag(CPUFlags::OVERFLOW, ((result ^ self.cpu.acc) & (result ^ memory) & 0x80) != 0);
+                self.cpu.set_flag(
+                    CPUFlags::OVERFLOW,
+                    ((result ^ self.cpu.acc) & (result ^ memory) & 0x80) != 0,
+                );
                 self.cpu.set_zn(result);
 
                 self.cpu.acc = result;
 
-                if page_crossed { self.cycles += 1; }
-                
+                if page_crossed {
+                    self.cycles += 1;
+                }
             }
             Instruction::SBC => {
                 // A = A - memory - ~C, or A = A + ~memory + C
                 let (memory, page_crossed) = self.resolve_value_from_addressmode(addr_mode, arg);
 
                 // First, treat as u16 to detect overflow
-                let result: u16 = self.cpu.acc as u16 + (!memory as u16) + (self.cpu.flag_as_u8(CPUFlags::CARRY) as u16);
+                let result: u16 = self.cpu.acc as u16
+                    + (!memory as u16)
+                    + (self.cpu.flag_as_u8(CPUFlags::CARRY) as u16);
                 self.cpu.set_flag(CPUFlags::CARRY, result > 0xFF);
-                // Then, cap to u8 
+                // Then, cap to u8
                 let result = result as u8;
-                self.cpu.set_flag(CPUFlags::OVERFLOW, ((result ^ self.cpu.acc) & (result ^ !memory) & 0x80) != 0);
+                self.cpu.set_flag(
+                    CPUFlags::OVERFLOW,
+                    ((result ^ self.cpu.acc) & (result ^ !memory) & 0x80) != 0,
+                );
                 self.cpu.set_zn(result);
 
                 self.cpu.acc = result;
-                if page_crossed { self.cycles += 1; }
+                if page_crossed {
+                    self.cycles += 1;
+                }
             }
             Instruction::ASL => self.shift_rmw(addr_mode, arg, |v, _| (v << 1, (v & 0x80) != 0)),
             Instruction::LSR => self.shift_rmw(addr_mode, arg, |v, _| (v >> 1, (v & 0x01) != 0)),
-            Instruction::ROL => self.shift_rmw(addr_mode, arg, |v, c| ((v << 1) | c as u8,        (v & 0x80) != 0)),
-            Instruction::ROR => self.shift_rmw(addr_mode, arg, |v, c| ((v >> 1) | (c as u8) << 7, (v & 0x01) != 0)),
-            Instruction::BCC => { self.branch_if(!self.cpu.get_flag(CPUFlags::CARRY), arg); },
-            Instruction::BEQ => { self.branch_if(self.cpu.get_flag(CPUFlags::ZERO), arg); },
-            Instruction::BMI => { self.branch_if(self.cpu.get_flag(CPUFlags::NEGATIVE), arg); },
-            Instruction::BNE => { self.branch_if(!self.cpu.get_flag(CPUFlags::ZERO), arg); },
-            Instruction::BPL => { self.branch_if(!self.cpu.get_flag(CPUFlags::NEGATIVE), arg); },
-            Instruction::BVC => { self.branch_if(!self.cpu.get_flag(CPUFlags::OVERFLOW), arg); },
-            Instruction::BVS => { self.branch_if(self.cpu.get_flag(CPUFlags::OVERFLOW), arg); },
-            Instruction::BCS => { self.branch_if(self.cpu.get_flag(CPUFlags::CARRY), arg); },
-            Instruction::CLC => { self.cpu.set_flag(CPUFlags::CARRY, false); },
-            Instruction::CLD => { self.cpu.set_flag(CPUFlags::DECIMAL, false); },
-            Instruction::CLI => { self.cpu.set_flag(CPUFlags::IRQ, false); },
-            Instruction::CLV => { self.cpu.set_flag(CPUFlags::OVERFLOW, false); },
-            Instruction::SEC => { self.cpu.set_flag(CPUFlags::CARRY, true); },
-            Instruction::SED => { self.cpu.set_flag(CPUFlags::DECIMAL, true); },
-            Instruction::SEI => { self.cpu.set_flag(CPUFlags::IRQ, true); },
-            Instruction::CMP => { self.compare_reg(addr_mode, arg, self.cpu.acc); }
-            Instruction::CPX => { self.compare_reg(addr_mode, arg, self.cpu.x); }
-            Instruction::CPY => { self.compare_reg(addr_mode, arg, self.cpu.y); }
-            Instruction::DEC => { 
+            Instruction::ROL => {
+                self.shift_rmw(addr_mode, arg, |v, c| ((v << 1) | c as u8, (v & 0x80) != 0))
+            }
+            Instruction::ROR => self.shift_rmw(addr_mode, arg, |v, c| {
+                ((v >> 1) | (c as u8) << 7, (v & 0x01) != 0)
+            }),
+            Instruction::BCC => {
+                self.branch_if(!self.cpu.get_flag(CPUFlags::CARRY), arg);
+            }
+            Instruction::BEQ => {
+                self.branch_if(self.cpu.get_flag(CPUFlags::ZERO), arg);
+            }
+            Instruction::BMI => {
+                self.branch_if(self.cpu.get_flag(CPUFlags::NEGATIVE), arg);
+            }
+            Instruction::BNE => {
+                self.branch_if(!self.cpu.get_flag(CPUFlags::ZERO), arg);
+            }
+            Instruction::BPL => {
+                self.branch_if(!self.cpu.get_flag(CPUFlags::NEGATIVE), arg);
+            }
+            Instruction::BVC => {
+                self.branch_if(!self.cpu.get_flag(CPUFlags::OVERFLOW), arg);
+            }
+            Instruction::BVS => {
+                self.branch_if(self.cpu.get_flag(CPUFlags::OVERFLOW), arg);
+            }
+            Instruction::BCS => {
+                self.branch_if(self.cpu.get_flag(CPUFlags::CARRY), arg);
+            }
+            Instruction::CLC => {
+                self.cpu.set_flag(CPUFlags::CARRY, false);
+            }
+            Instruction::CLD => {
+                self.cpu.set_flag(CPUFlags::DECIMAL, false);
+            }
+            Instruction::CLI => {
+                self.cpu.set_flag(CPUFlags::IRQ, false);
+            }
+            Instruction::CLV => {
+                self.cpu.set_flag(CPUFlags::OVERFLOW, false);
+            }
+            Instruction::SEC => {
+                self.cpu.set_flag(CPUFlags::CARRY, true);
+            }
+            Instruction::SED => {
+                self.cpu.set_flag(CPUFlags::DECIMAL, true);
+            }
+            Instruction::SEI => {
+                self.cpu.set_flag(CPUFlags::IRQ, true);
+            }
+            Instruction::CMP => {
+                self.compare_reg(addr_mode, arg, self.cpu.acc);
+            }
+            Instruction::CPX => {
+                self.compare_reg(addr_mode, arg, self.cpu.x);
+            }
+            Instruction::CPY => {
+                self.compare_reg(addr_mode, arg, self.cpu.y);
+            }
+            Instruction::DEC => {
                 let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
                 let result = self.read(addr).wrapping_sub(1);
                 self.write_addr(addr, result);
@@ -195,7 +268,7 @@ impl NES {
                 self.cpu.y = self.cpu.y.wrapping_sub(1);
                 self.cpu.set_zn(self.cpu.y);
             }
-            Instruction::INC => { 
+            Instruction::INC => {
                 let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
                 let result = self.read(addr).wrapping_add(1);
                 self.write_addr(addr, result);
@@ -221,9 +294,7 @@ impl NES {
                 self.cpu.x = self.cpu.s;
                 self.cpu.set_zn(self.cpu.x);
             }
-            Instruction::TXS => {
-                self.cpu.s = self.cpu.x
-            }
+            Instruction::TXS => self.cpu.s = self.cpu.x,
             Instruction::TAX => {
                 self.cpu.x = self.cpu.acc;
                 self.cpu.set_zn(self.cpu.x);
@@ -241,30 +312,36 @@ impl NES {
                 self.cpu.set_zn(self.cpu.y);
             }
             Instruction::PHP => {
-                self.write_addr(0x100 + (self.cpu.s as u16), self.cpu.flags.bits() | (1 << 4) | (1 << 5));
+                self.write_addr(
+                    0x100 + (self.cpu.s as u16),
+                    self.cpu.flags.bits() | (1 << 4) | (1 << 5),
+                );
                 self.cpu.s = self.cpu.s.wrapping_sub(1);
             }
             Instruction::PLP => {
                 self.cpu.s = self.cpu.s.wrapping_add(1);
                 let bits = self.read(0x100 + (self.cpu.s as u16));
-                self.cpu.set_flag(CPUFlags::CARRY,      bits & (1 << 0) != 0);
-                self.cpu.set_flag(CPUFlags::ZERO,       bits & (1 << 1) != 0);
-                self.cpu.set_flag(CPUFlags::IRQ,        bits & (1 << 2) != 0);
-                self.cpu.set_flag(CPUFlags::DECIMAL,    bits & (1 << 3) != 0);
-                self.cpu.set_flag(CPUFlags::OVERFLOW,   bits & (1 << 6) != 0);
-                self.cpu.set_flag(CPUFlags::NEGATIVE,   bits & (1 << 7) != 0);
+                self.cpu.set_flag(CPUFlags::CARRY, bits & (1 << 0) != 0);
+                self.cpu.set_flag(CPUFlags::ZERO, bits & (1 << 1) != 0);
+                self.cpu.set_flag(CPUFlags::IRQ, bits & (1 << 2) != 0);
+                self.cpu.set_flag(CPUFlags::DECIMAL, bits & (1 << 3) != 0);
+                self.cpu.set_flag(CPUFlags::OVERFLOW, bits & (1 << 6) != 0);
+                self.cpu.set_flag(CPUFlags::NEGATIVE, bits & (1 << 7) != 0);
             }
-            Instruction::LDA => { 
+            Instruction::LDA => {
                 let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
-                self.cpu.acc = value; self.cpu.set_zn(self.cpu.acc); 
+                self.cpu.acc = value;
+                self.cpu.set_zn(self.cpu.acc);
             }
-            Instruction::LDX => { 
+            Instruction::LDX => {
                 let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
-                self.cpu.x = value; self.cpu.set_zn(self.cpu.x); 
+                self.cpu.x = value;
+                self.cpu.set_zn(self.cpu.x);
             }
-            Instruction::LDY => { 
+            Instruction::LDY => {
                 let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
-                self.cpu.y = value; self.cpu.set_zn(self.cpu.y); 
+                self.cpu.y = value;
+                self.cpu.set_zn(self.cpu.y);
             }
             Instruction::STA => {
                 let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
@@ -278,8 +355,7 @@ impl NES {
                 let (addr, _) = self.resolve_address(addr_mode, arg.unwrap()).unwrap();
                 self.write_addr(addr, self.cpu.y);
             }
-            Instruction::NOP => {
-            }
+            Instruction::NOP => {}
             Instruction::JMP => {
                 let pointer = arg.unwrap();
                 self.cpu.pc = match addr_mode {
@@ -290,12 +366,11 @@ impl NES {
                         // Emulate the 6502 indirect-JMP page-wrap bug: when the pointer's low
                         // byte is 0xFF, the high byte is fetched from the start of the same page
                         // instead of the next one (e.g. ($03FF) reads high from $0300, not $0400).
-                        let highbyte_address =
-                            if (pointer & 0x00FF) == 0x00FF {
-                                pointer & 0xFF00
-                            } else {
-                                pointer.wrapping_add(1)
-                            };
+                        let highbyte_address = if (pointer & 0x00FF) == 0x00FF {
+                            pointer & 0xFF00
+                        } else {
+                            pointer.wrapping_add(1)
+                        };
 
                         let high_byte = self.read(highbyte_address) as u16;
                         (high_byte << 8) | low_byte
@@ -323,35 +398,41 @@ impl NES {
                 self.cpu.pc = self.read_u16(0xFFFE);
             }
             Instruction::RTI => {
-               let flags = self.stack_pull();
-               let low = self.stack_pull() as u16;
-               let high = self.stack_pull() as u16;
-               self.cpu.pc = (high << 8) | low;
+                let flags = self.stack_pull();
+                let low = self.stack_pull() as u16;
+                let high = self.stack_pull() as u16;
+                self.cpu.pc = (high << 8) | low;
 
-               self.cpu.set_flag(CPUFlags::CARRY,       (flags & (1 << 0)) != 0);
-               self.cpu.set_flag(CPUFlags::ZERO,        (flags & (1 << 1)) != 0);
-               self.cpu.set_flag(CPUFlags::IRQ,         (flags & (1 << 2)) != 0);
-               self.cpu.set_flag(CPUFlags::DECIMAL,     (flags & (1 << 3)) != 0);
-               self.cpu.set_flag(CPUFlags::OVERFLOW,    (flags & (1 << 6)) != 0);
-               self.cpu.set_flag(CPUFlags::NEGATIVE,    (flags & (1 << 7)) != 0);
+                self.cpu.set_flag(CPUFlags::CARRY, (flags & (1 << 0)) != 0);
+                self.cpu.set_flag(CPUFlags::ZERO, (flags & (1 << 1)) != 0);
+                self.cpu.set_flag(CPUFlags::IRQ, (flags & (1 << 2)) != 0);
+                self.cpu
+                    .set_flag(CPUFlags::DECIMAL, (flags & (1 << 3)) != 0);
+                self.cpu
+                    .set_flag(CPUFlags::OVERFLOW, (flags & (1 << 6)) != 0);
+                self.cpu
+                    .set_flag(CPUFlags::NEGATIVE, (flags & (1 << 7)) != 0);
             }
-            Instruction::AND => { self.bit_operation(addr_mode, arg, |x, y| x & y) }
-            Instruction::ORA => { self.bit_operation(addr_mode, arg, |x, y| x | y) }
-            Instruction::EOR => { self.bit_operation(addr_mode, arg, |x, y| x ^ y) }
+            Instruction::AND => self.bit_operation(addr_mode, arg, |x, y| x & y),
+            Instruction::ORA => self.bit_operation(addr_mode, arg, |x, y| x | y),
+            Instruction::EOR => self.bit_operation(addr_mode, arg, |x, y| x ^ y),
             Instruction::BIT => {
                 let (value, _) = self.resolve_value_from_addressmode(addr_mode, arg);
-                self.cpu.set_flag(CPUFlags::ZERO, (self.cpu.acc & value) == 0);
+                self.cpu
+                    .set_flag(CPUFlags::ZERO, (self.cpu.acc & value) == 0);
                 self.cpu.set_flag(CPUFlags::NEGATIVE, (value & 0x80) != 0);
                 self.cpu.set_flag(CPUFlags::OVERFLOW, (value & 0x40) != 0);
             }
-            Instruction::ERR => panic!("unimplemented instruction {}", instruction_data.instruction)
+            Instruction::ERR => {
+                panic!("unimplemented instruction {}", instruction_data.instruction)
+            }
         }
     }
 
     pub fn oam_dma(&mut self, data: u8) {
         let oamaddr = self.read(0x2003);
         let base_addr = oamaddr as u16 + 0x100 * data as u16;
-        
+
         let mut data: Vec<u8> = vec![0u8; 256];
         for i in 0..256 {
             data[i] = self.read(base_addr.wrapping_add(i as u16));

@@ -28,9 +28,8 @@ impl Inputs {
     pub fn set(&mut self, t: InputFlag, v: bool) {
         self.inputs.set(t, v);
     }
-    
-    pub fn get_input_byte(&self) -> InputFlag  {
+
+    pub fn get_input_byte(&self) -> InputFlag {
         self.inputs
     }
-    
 }

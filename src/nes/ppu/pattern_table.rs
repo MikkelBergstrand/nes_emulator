@@ -22,9 +22,9 @@ pub fn pattern_tables_to_bytes(chr_rom: &[u8]) -> (Vec<u8>, usize, usize) {
     let height = 128;
 
     for pattern_table in 0..num_pattern_tables {
-        let base_addr = 0x1000*pattern_table;
+        let base_addr = 0x1000 * pattern_table;
         for tile in 0..num_tiles {
-            let tile_base_x = pattern_table*16 + (tile % 16);
+            let tile_base_x = pattern_table * 16 + (tile % 16);
             let tile_base_y = tile / 16;
 
             for tile_y in 0..8 {
@@ -50,10 +50,10 @@ pub fn pattern_tables_to_bytes(chr_rom: &[u8]) -> (Vec<u8>, usize, usize) {
                         _ => panic!("Invalid color index"),
                     };
 
-                    let idx = width*(tile_base_y*8+tile_y) + tile_base_x*8+tile_x;
-                    colors[3*idx + 0] = color[0];
-                    colors[3*idx + 1] = color[1];
-                    colors[3*idx + 2] = color[2];
+                    let idx = width * (tile_base_y * 8 + tile_y) + tile_base_x * 8 + tile_x;
+                    colors[3 * idx + 0] = color[0];
+                    colors[3 * idx + 1] = color[1];
+                    colors[3 * idx + 2] = color[2];
                 }
             }
         }

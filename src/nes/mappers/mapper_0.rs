@@ -1,8 +1,7 @@
 use std::usize;
 
-use crate::nes::{mappers::Mapper, nes_parser::NESData};
 use crate::nes::nes_parser::NametableArrangement;
-
+use crate::nes::{mappers::Mapper, nes_parser::NESData};
 
 pub struct NROM {
     prg_rom: Vec<u8>,
@@ -24,13 +23,15 @@ impl NROM {
 
 impl Mapper for NROM {
     fn ppu_read(&mut self, addr: u16) -> u8 {
-        return self.chr_rom[(addr & 0x1FFF) as usize]
+        return self.chr_rom[(addr & 0x1FFF) as usize];
     }
 
     fn cpu_read(&mut self, addr: u16) -> u8 {
         match addr {
-            0x8000..=0xFFFF => self.prg_rom[(addr & if  self.n_prg_banks > 1 { 0x7FFF } else { 0x3FFF }) as usize],
-            _ =>  0
+            0x8000..=0xFFFF => {
+                self.prg_rom[(addr & if self.n_prg_banks > 1 { 0x7FFF } else { 0x3FFF }) as usize]
+            }
+            _ => 0,
         }
     }
 

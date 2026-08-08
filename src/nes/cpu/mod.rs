@@ -25,5 +25,3 @@ pub struct CPU {
     pub s: u8,
     pub flags: CPUFlags,
 }
-
-

@@ -1,3 +1,4 @@
-mod nes;
-mod inputs;
 pub mod graphics;
+mod inputs;
+pub mod nes;
+mod sound;

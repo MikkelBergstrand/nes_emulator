@@ -17,7 +17,6 @@ pub fn get_mapper(nes_data: NESData) -> Box<dyn Mapper> {
     match nes_data.header.mapper {
         0 => Box::new(mapper_0::NROM::new(nes_data)),
         1 => Box::new(mapper_1::MMC1::new(nes_data)),
-        _ => panic!("Unsupported mapper")
+        _ => panic!("Unsupported mapper"),
     }
 }
-

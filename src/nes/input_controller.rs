@@ -13,7 +13,7 @@ impl InputController {
 
     pub fn write(&mut self, val: u8) {
         self.strobe = (val & 1) != 0;
-    }    
+    }
 
     pub fn set_controller_state(&mut self, state: u8) {
         if self.strobe {
@@ -21,7 +21,7 @@ impl InputController {
         }
     }
 
-    // TODO: implement support for controller 2 
+    // TODO: implement support for controller 2
     pub fn read(&mut self, _controller: u8) -> u8 {
         let ret = self.inputs & 1;
         if !self.strobe {
@@ -29,5 +29,4 @@ impl InputController {
         }
         ret
     }
-
 }

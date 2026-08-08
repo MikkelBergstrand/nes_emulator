@@ -1,4 +1,3 @@
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -22,12 +21,11 @@ impl Vertex {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
-                }
-            ]
+                },
+            ],
         }
     }
 }
-
 
 // Basic triangle
 // pub const VERTICES: &[Vertex] = &[
@@ -53,16 +51,26 @@ impl Vertex {
 // ];
 
 pub const VERTICES: &[Vertex] = &[
-    Vertex { position: [-1.0, 1.0, 0.0], tex_coords: [0.0, 0.0], }, //Top-left
-    Vertex { position: [-1.0, -1.0, 0.0], tex_coords:  [0.0,  1.0], }, //Bottom-left
-    Vertex { position: [1.0, -1.0, 0.0], tex_coords: [1.0, 1.0], }, //Bottom-right
-    Vertex { position: [1.0, 1.0, 0.0], tex_coords: [1.0, 0.0], }, //Top-right
+    Vertex {
+        position: [-1.0, 1.0, 0.0],
+        tex_coords: [0.0, 0.0],
+    }, //Top-left
+    Vertex {
+        position: [-1.0, -1.0, 0.0],
+        tex_coords: [0.0, 1.0],
+    }, //Bottom-left
+    Vertex {
+        position: [1.0, -1.0, 0.0],
+        tex_coords: [1.0, 1.0],
+    }, //Bottom-right
+    Vertex {
+        position: [1.0, 1.0, 0.0],
+        tex_coords: [1.0, 0.0],
+    }, //Top-right
 ];
 
-
 pub const INDICES: &[u16] = &[
-    0, 1, 2,
-    3, 0, 2,
-//    1, 2, 4,
-//    2, 3, 4,
+    0, 1, 2, 3, 0, 2,
+    //    1, 2, 4,
+    //    2, 3, 4,
 ];

@@ -14,7 +14,7 @@ enum TimingMode {
     NTSC,
     PAL,
     MultipleRegion,
-    Dendy
+    Dendy,
 }
 
 #[derive(Debug)]
@@ -24,9 +24,9 @@ pub struct NES2Header {
     pub trainer: bool,
     pub alt_nametable_layout: bool,
     pub console_type: ConsoleType,
-    pub mapper: u16,  
+    pub mapper: u16,
     pub submapper: u8,
-    pub prg_rom_size: u16, 
+    pub prg_rom_size: u16,
     pub chr_rom_size: u16,
     pub prg_ram_size: u16,
     pub prg_nvram_size: u16,
@@ -47,7 +47,7 @@ pub struct NESData {
 pub enum NametableArrangement {
     Vertical,
     Horizontal,
-    OneScreen(u8)
+    OneScreen(u8),
 }
 
 #[derive(Debug)]
@@ -55,9 +55,8 @@ enum ConsoleType {
     NES,
     VsSystem,
     Playchoice10,
-    Extended
+    Extended,
 }
-
 
 #[derive(Debug)]
 pub enum RomError {
@@ -76,13 +75,12 @@ impl fmt::Display for RomError {
 
 impl std::error::Error for RomError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-       match self {
+        match self {
             RomError::Io(e) => Some(e),
-            RomError::UnrecognizedFormat => None
-       } 
+            RomError::UnrecognizedFormat => None,
+        }
     }
 }
-
 
 impl From<std::io::Error> for RomError {
     fn from(e: std::io::Error) -> Self {
@@ -93,22 +91,26 @@ impl From<std::io::Error> for RomError {
 pub fn read(filename: &str) -> Result<NESData, RomError> {
     let bytes: Vec<u8> = fs::read(filename)?;
 
-    if &bytes[0..4] != b"NES\x1A" { 
+    if &bytes[0..4] != b"NES\x1A" {
         return Err(RomError::UnrecognizedFormat);
     }
     let nes_header = parse_nes_header(&bytes);
     dbg!(&nes_header);
-    
+
     let mut offset: usize = 16; // Length of header
 
     // ROM Size is in units of 16kB
     let prg_rom_size: usize = (nes_header.prg_rom_size as usize) << 14;
-    let prg_rom_data = &bytes.get(offset..(offset+prg_rom_size)).ok_or(RomError::UnrecognizedFormat)?;
+    let prg_rom_data = &bytes
+        .get(offset..(offset + prg_rom_size))
+        .ok_or(RomError::UnrecognizedFormat)?;
     offset += prg_rom_size;
 
     // Units of 8kB
     let chr_rom_size = (nes_header.chr_rom_size as usize) << 13;
-    let chr_rom_data = bytes.get(offset..(offset+chr_rom_size)).ok_or(RomError::UnrecognizedFormat)?;
+    let chr_rom_data = bytes
+        .get(offset..(offset + chr_rom_size))
+        .ok_or(RomError::UnrecognizedFormat)?;
     // offset += chr_rom_size;
 
     Ok(NESData {
@@ -119,7 +121,9 @@ pub fn read(filename: &str) -> Result<NESData, RomError> {
 }
 
 fn parse_nes_header(bytes: &[u8]) -> NES2Header {
-    fn bit_to_bool(byte: u8, bit: u8) -> bool { (byte & (1 << bit)) != 0 }
+    fn bit_to_bool(byte: u8, bit: u8) -> bool {
+        (byte & (1 << bit)) != 0
+    }
     fn parse_shift_format(shift_count: u8) -> u16 {
         if shift_count == 0 {
             return 0;
@@ -136,61 +140,59 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
         println!("Recognized iNES format");
     }
 
-
     // Following definitions are common for iNES and NES2.0
-    let nametable_arrangement = if bit_to_bool(bytes[6], 0) { NametableArrangement::Horizontal} else { NametableArrangement::Vertical };
+    let nametable_arrangement = if bit_to_bool(bytes[6], 0) {
+        NametableArrangement::Horizontal
+    } else {
+        NametableArrangement::Vertical
+    };
     let nvm_present = bit_to_bool(bytes[6], 1);
     let trainer = bit_to_bool(bytes[6], 2);
     let alt_nametable_layout = bit_to_bool(bytes[6], 3);
-    
+
     // NES2 supports 12-bit mapper number, whereas iNES supports only 8-bit
-    let mapper: u16 = if is_nes2 { ((bytes[6] as u16) >> 4) 
-        | ((bytes[7] as u16) & 0xF0)
-        | (((bytes[8] as u16) & 0x0F) << 4)
+    let mapper: u16 = if is_nes2 {
+        ((bytes[6] as u16) >> 4) | ((bytes[7] as u16) & 0xF0) | (((bytes[8] as u16) & 0x0F) << 4)
     } else {
         ((bytes[6] as u16) >> 4) | ((bytes[7] as u16) & 0xF0)
     };
 
-    let chr_rom_size = if is_nes2 { 
+    let chr_rom_size = if is_nes2 {
         (bytes[5] as u16) | (((bytes[9] as u16) & 0xF0) << 4)
-    }
-    else {
-       bytes[5] as u16
+    } else {
+        bytes[5] as u16
     };
 
-    let prg_rom_size = if is_nes2 { 
+    let prg_rom_size = if is_nes2 {
         (bytes[4] as u16) | (((bytes[9] as u16) & 0x0F) << 8)
-    }
-    else {
-       bytes[4] as u16
+    } else {
+        bytes[4] as u16
     };
-    
+
     let console_type = if is_nes2 {
         match bytes[7] & 0x03 {
             0 => ConsoleType::NES,
             1 => ConsoleType::VsSystem,
             2 => ConsoleType::Playchoice10,
             3 => ConsoleType::Extended,
-            _ => panic!("Error parsing console type")
+            _ => panic!("Error parsing console type"),
         }
     } else {
         match bytes[7] & 0x03 {
             0 => ConsoleType::NES,
             1 => ConsoleType::VsSystem,
             2 => ConsoleType::Playchoice10,
-            _ => panic!("Error parsing console type")
+            _ => panic!("Error parsing console type"),
         }
     };
 
-    let timing_mode = 
-        match bytes[12] & 0x03 {
-            0 => TimingMode::NTSC,
-            1 => TimingMode::PAL,
-            2 => TimingMode::MultipleRegion,
-            3 => TimingMode::Dendy,
-            _ => panic!("Error parsing timing mode")
-        };
-    
+    let timing_mode = match bytes[12] & 0x03 {
+        0 => TimingMode::NTSC,
+        1 => TimingMode::PAL,
+        2 => TimingMode::MultipleRegion,
+        3 => TimingMode::Dendy,
+        _ => panic!("Error parsing timing mode"),
+    };
 
     let prg_ram_size = if is_nes2 {
         parse_shift_format(bytes[10] & 0x0F)
@@ -198,16 +200,15 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
         bytes[8] as u16
     };
 
-    let chr_ram_size = if is_nes2 { 
-        parse_shift_format(bytes[11] & 0xF) } 
-    else if chr_rom_size == 0 {
+    let chr_ram_size = if is_nes2 {
+        parse_shift_format(bytes[11] & 0xF)
+    } else if chr_rom_size == 0 {
         8192 // iNES assumes 8192kB CHR-RAM if CHR-ROM size is 0
     } else {
         0
     };
 
     // Note that bytes 9 and 10 in iNES are not supported.
-
 
     NES2Header {
         alt_nametable_layout,
@@ -220,10 +221,22 @@ fn parse_nes_header(bytes: &[u8]) -> NES2Header {
         submapper: (bytes[8] & 0xF0) >> 4,
         console_type,
         prg_ram_size,
-        prg_nvram_size: if is_nes2 { parse_shift_format((bytes[10] & 0xF0) >> 4) } else { 0 },
-        chr_nvram_size: if is_nes2 { parse_shift_format((bytes[11] & 0xF0) >> 4) } else { 0 },
-        chr_ram_size:  chr_ram_size,
-        timing_mode: if is_nes2 { timing_mode } else { TimingMode::NTSC },
+        prg_nvram_size: if is_nes2 {
+            parse_shift_format((bytes[10] & 0xF0) >> 4)
+        } else {
+            0
+        },
+        chr_nvram_size: if is_nes2 {
+            parse_shift_format((bytes[11] & 0xF0) >> 4)
+        } else {
+            0
+        },
+        chr_ram_size: chr_ram_size,
+        timing_mode: if is_nes2 {
+            timing_mode
+        } else {
+            TimingMode::NTSC
+        },
         default_expansion_device: if is_nes2 { bytes[15] & 0x7F } else { 0 },
         misc_roms: if is_nes2 { bytes[14] & 0x03 } else { 0 },
     }
