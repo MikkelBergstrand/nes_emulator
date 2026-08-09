@@ -3,6 +3,7 @@ use crate::nes::{F_CPU, apu::channel::PulseChannel};
 mod adressing;
 pub mod channel;
 mod envelope;
+mod sweeper;
 
 pub const F_APU: f32 = F_CPU / 2.0;
 
@@ -78,9 +79,14 @@ impl APU {
 
     fn tick_length_counter_and_sweep(&mut self) {
         self.pulse_channel_1.tick_length_counter();
+        self.pulse_channel_1.tick_sweep();
+
+        self.pulse_channel_2.tick_length_counter();
+        self.pulse_channel_2.tick_sweep();
     }
     fn tick_envelope_and_linear_counter(&mut self) {
         self.pulse_channel_1.tick_envelope();
+        self.pulse_channel_2.tick_envelope();
     }
 
     /// Advances the frame counter by one step and applies that step's rule.
@@ -109,6 +115,7 @@ impl APU {
         }
 
         self.pulse_channel_1.tick(self.status & 1 != 0);
+        self.pulse_channel_2.tick(self.status & 2 != 0);
     }
 
     /// Handles a write to $4017. Resets the sequence, and in mode 1 clocks the
@@ -124,8 +131,10 @@ impl APU {
         }
     }
 
-    pub fn get_output(&self) -> u16 {
-        self.pulse_channel_1.get_output()
+    pub fn get_output(&self) -> f32 {
+        let psum =
+            self.pulse_channel_1.get_output() as f32 + self.pulse_channel_2.get_output() as f32;
+        return 95.88 / ((8128.0 / psum) + 100.0);
     }
 }
 

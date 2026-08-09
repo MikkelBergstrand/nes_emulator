@@ -80,10 +80,8 @@ impl Iterator for APUSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.sample_buffer.try_pop() {
-            Some(x) => Some(x as f32),
-            None => Some(0.0),
-        }
+        const SCALE: f32 = 1.0 / -(i16::MIN as f32);
+        Some(self.sample_buffer.try_pop().unwrap_or(0) as f32 * SCALE)
     }
 }
 

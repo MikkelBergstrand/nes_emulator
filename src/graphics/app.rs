@@ -26,7 +26,7 @@ const CYCLES_PER_FRAME: u32 = 29781;
 // emulator run free of its clock.
 const AUDIO_STALL_TIMEOUT: Duration = Duration::from_millis(250);
 // Room left in an i16 for the other channels once they're mixed in.
-const AMPLITUDE: f32 = 8000.0;
+const AMPLITUDE: f32 = 10000.0;
 
 // This will store the state of our game
 pub struct State {
@@ -305,7 +305,7 @@ impl State {
             self.nes.tick();
 
             clock = (self.nes.cycles() - frame_start) as u32;
-            let output = (self.nes.sound_output()) as i32;
+            let output = (self.nes.sound_output() * AMPLITUDE) as i32;
             self.apu_sink.push_sample(clock, output);
         }
 

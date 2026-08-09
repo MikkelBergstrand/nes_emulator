@@ -6,6 +6,9 @@ impl APU {
             0x4000..=0x4003 => {
                 self.pulse_channel_1.set((addr - 0x4000) as u8, data);
             }
+            0x4004..=0x4007 => {
+                self.pulse_channel_2.set((addr - 0x4004) as u8, data);
+            }
             0x4015 => {
                 self.status = data;
             }
