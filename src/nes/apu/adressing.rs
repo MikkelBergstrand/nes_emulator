@@ -11,6 +11,8 @@ impl<T: APUMixer> APU<T> {
             }
             0x4015 => {
                 self.status = data;
+                self.channels.pulse_1.set_enabled(data & 0x1 != 0);
+                self.channels.pulse_2.set_enabled(data & 0x2 != 0);
             }
             0x4017 => self.set_frame_counter(data),
             _ => (),
