@@ -18,6 +18,7 @@ pub struct PulseChannel {
     enabled: bool,
 
     sequencer_step: u8,
+    period: u16,
 
     envelope: Envelope,
     sweeper: Sweeper,
@@ -27,6 +28,7 @@ pub struct PulseChannel {
 impl PulseChannel {
     pub fn new() -> Self {
         PulseChannel {
+            period: 0,
             enabled: false,
             duty: 0,
             t: 0,
@@ -52,13 +54,9 @@ impl PulseChannel {
                 self.sweeper.shift = data & 0x07;
                 self.sweeper.reset();
             }
-            2 => self
-                .sweeper
-                .set_pulse_period((self.sweeper.pulse_period() & 0xFF00) | (data as u16)),
+            2 => self.period = (self.period & 0xFF00) | (data as u16),
             3 => {
-                self.sweeper.set_pulse_period(
-                    (((data & 0x07) as u16) << 8) | (self.sweeper.pulse_period() & 0x00FF),
-                );
+                self.period = (((data & 0x07) as u16) << 8) | (self.period & 0x00FF);
                 self.length_counter.set_counter((data & 0xF8) >> 3);
                 self.envelope.set_start();
 
@@ -73,7 +71,7 @@ impl PulseChannel {
         // Clock the sequencer on the transition from 0 to period
         if self.t == 0 {
             self.sequencer_step = (self.sequencer_step + 1) % 8;
-            self.t = self.sweeper.pulse_period();
+            self.t = self.period;
         } else {
             self.t -= 1;
         }
@@ -84,7 +82,7 @@ impl PulseChannel {
     }
 
     pub fn tick_sweep(&mut self) {
-        self.sweeper.tick();
+        self.period = self.sweeper.tick(self.period);
     }
 
     pub fn tick_length_counter(&mut self) {
@@ -97,7 +95,7 @@ impl PulseChannel {
     }
 
     fn enabled(&self) -> bool {
-        self.length_counter.active() && !self.sweeper.mute()
+        self.length_counter.active() && !self.sweeper.mute(self.period)
     }
 
     pub fn get_output(&self) -> u16 {

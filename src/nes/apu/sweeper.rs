@@ -6,13 +6,11 @@ pub struct Sweeper {
 
     divider: u8,
     reload: bool,
-
-    pulse_period: u16,
 }
 
 impl Sweeper {
-    pub fn mute(&self) -> bool {
-        return self.pulse_period < 8 || self.target_period() > 0x7FF;
+    pub fn mute(&self, period: u16) -> bool {
+        return period < 8 || self.target_period(period) > 0x7FF;
     }
     pub fn new() -> Self {
         Self {
@@ -22,7 +20,6 @@ impl Sweeper {
             shift: 0,
             reload: false,
             divider: 0,
-            pulse_period: 0,
         }
     }
 
@@ -30,19 +27,14 @@ impl Sweeper {
         self.reload = true;
     }
 
-    pub fn set_pulse_period(&mut self, period: u16) {
-        self.pulse_period = period;
-    }
+    // A swepper iteration may alter the channel timer period, hence the
+    // function takes in the current period and returns a (possibly altereded) new period value
+    pub fn tick(&mut self, period: u16) -> u16 {
+        let mut period = period;
 
-    pub fn pulse_period(&self) -> u16 {
-        self.pulse_period
-    }
-
-    pub fn tick(&mut self) {
         if self.divider == 0 && self.enabled && self.shift > 0 {
-            let target = self.target_period();
-            if !self.mute() {
-                self.pulse_period = target;
+            if !self.mute(period) {
+                period = self.target_period(period);
             }
         }
 
@@ -52,12 +44,14 @@ impl Sweeper {
         } else {
             self.divider -= 1;
         }
+
+        period
     }
 
-    pub fn target_period(&self) -> u16 {
-        let change = (self.pulse_period >> self.shift) as i16;
+    pub fn target_period(&self, period: u16) -> u16 {
+        let change = (period >> self.shift) as i16;
         let change = if self.negate { -change - 1 } else { change };
 
-        (self.pulse_period as i16 + change).max(0) as u16
+        (period as i16 + change).max(0) as u16
     }
 }

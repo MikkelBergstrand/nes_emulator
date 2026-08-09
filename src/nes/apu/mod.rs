@@ -1,11 +1,11 @@
 mod adressing;
-mod channel;
 mod envelope;
 mod length_counter;
 pub mod mixer;
+mod pulse_channel;
 mod sweeper;
 
-use channel::PulseChannel;
+use pulse_channel::PulseChannel;
 
 use crate::nes::apu::mixer::APUMixer;
 
