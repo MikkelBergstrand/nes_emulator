@@ -1,9 +1,12 @@
 mod adressing;
 mod channel;
 mod envelope;
+pub mod mixer;
 mod sweeper;
 
 use channel::PulseChannel;
+
+use crate::nes::apu::mixer::APUMixer;
 
 #[rustfmt::skip]
 pub const LENGTH_COUNTER_TABLE: [u8; 0x20] = [
@@ -54,37 +57,51 @@ const FRAME_COUNTER_RULES: &[&[u8]] = &[
     ],
 ];
 
-pub struct APU {
-    pub pulse_channel_1: PulseChannel,
-    pub pulse_channel_2: PulseChannel,
+pub struct APUChannels {
+    pub pulse_1: PulseChannel,
+    pub pulse_2: PulseChannel,
+}
+
+impl APUChannels {
+    pub fn new() -> Self {
+        return Self {
+            pulse_1: PulseChannel::new(),
+            pulse_2: PulseChannel::new(),
+        };
+    }
+}
+
+pub struct APU<T: APUMixer> {
+    channels: APUChannels,
+    mixer: T,
     status: u8,
     frame_counter_mode: u8,
     frame_counter: usize,
     frame_divider: u16,
 }
 
-impl APU {
+impl<T: APUMixer> APU<T> {
     pub fn new() -> Self {
-        APU {
-            pulse_channel_1: PulseChannel::new(),
-            pulse_channel_2: PulseChannel::new(),
+        APU::<T> {
+            channels: APUChannels::new(),
             status: 0,
             frame_counter_mode: 0,
             frame_counter: 0,
             frame_divider: 0,
+            mixer: T::new(),
         }
     }
 
     fn tick_length_counter_and_sweep(&mut self) {
-        self.pulse_channel_1.tick_length_counter();
-        self.pulse_channel_1.tick_sweep();
+        self.channels.pulse_1.tick_length_counter();
+        self.channels.pulse_1.tick_sweep();
 
-        self.pulse_channel_2.tick_length_counter();
-        self.pulse_channel_2.tick_sweep();
+        self.channels.pulse_2.tick_length_counter();
+        self.channels.pulse_2.tick_sweep();
     }
     fn tick_envelope_and_linear_counter(&mut self) {
-        self.pulse_channel_1.tick_envelope();
-        self.pulse_channel_2.tick_envelope();
+        self.channels.pulse_1.tick_envelope();
+        self.channels.pulse_2.tick_envelope();
     }
 
     /// Advances the frame counter by one step and applies that step's rule.
@@ -112,8 +129,8 @@ impl APU {
             self.tick_frame_counter();
         }
 
-        self.pulse_channel_1.tick(self.status & 1 != 0);
-        self.pulse_channel_2.tick(self.status & 2 != 0);
+        self.channels.pulse_1.tick(self.status & 1 != 0);
+        self.channels.pulse_2.tick(self.status & 2 != 0);
     }
 
     /// Handles a write to $4017. Resets the sequence, and in mode 1 clocks the
@@ -130,8 +147,6 @@ impl APU {
     }
 
     pub fn get_output(&self) -> f32 {
-        let psum =
-            self.pulse_channel_1.get_output() as f32 + self.pulse_channel_2.get_output() as f32;
-        return 95.88 / ((8128.0 / psum) + 100.0);
+        self.mixer.mix(&self.channels)
     }
 }

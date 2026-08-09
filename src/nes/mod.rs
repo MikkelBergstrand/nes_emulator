@@ -13,7 +13,7 @@ mod ram;
 
 use image::Rgb;
 
-use crate::nes::input_controller::InputController;
+use crate::nes::{apu::mixer::APULookupTableMixer, input_controller::InputController};
 use apu::APU;
 use cpu::CPU;
 use mappers::Mapper;
@@ -26,7 +26,7 @@ pub const F_CPU: f32 = 1_789_773.0;
 
 pub struct NES {
     cpu: CPU,
-    apu: APU,
+    apu: APU<APULookupTableMixer>,
     ppu: PPU,
     ram: RAM,
     input_controller: InputController,
