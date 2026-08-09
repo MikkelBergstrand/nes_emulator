@@ -1,4 +1,9 @@
-use crate::nes::apu::{envelope::Envelope, length_counter::LengthCounter, sweeper::Sweeper};
+use crate::nes::apu::{
+    channel::{timer_high, timer_low},
+    envelope::Envelope,
+    length_counter::LengthCounter,
+    sweeper::Sweeper,
+};
 
 // Defines the output of the sequencer
 // First index is by duty cycle mode, which may be set by writing to 0x4000 or 0x4004
@@ -54,9 +59,9 @@ impl PulseChannel {
                 self.sweeper.shift = data & 0x07;
                 self.sweeper.reset();
             }
-            2 => self.period = (self.period & 0xFF00) | (data as u16),
+            2 => self.period = timer_low!(self.period, data),
             3 => {
-                self.period = (((data & 0x07) as u16) << 8) | (self.period & 0x00FF);
+                self.period = timer_high!(self.period, data);
                 self.length_counter.set_counter((data & 0xF8) >> 3);
                 self.envelope.set_start();
 

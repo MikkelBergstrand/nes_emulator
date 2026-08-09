@@ -103,8 +103,9 @@ impl NES {
         self.cycles = self.cycles.saturating_sub(1);
 
         if self.total_cycles % 2 == 0 {
-            self.apu.tick();
+            self.apu.tick_half_clock();
         }
+        self.apu.tick_full_clock();
 
         for _ in 0..3 {
             self.ppu.tick(&mut self.mapper);

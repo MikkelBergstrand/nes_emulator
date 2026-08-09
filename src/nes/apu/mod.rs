@@ -1,13 +1,15 @@
 mod adressing;
+mod channel;
 mod envelope;
 mod length_counter;
 pub mod mixer;
 mod pulse_channel;
 mod sweeper;
+mod triangle_channel;
 
 use pulse_channel::PulseChannel;
 
-use crate::nes::apu::mixer::APUMixer;
+use crate::nes::apu::{mixer::APUMixer, triangle_channel::TriangleChannel};
 
 const ENVELOPE_AND_LINEARCOUNTER: u8 = 0b10;
 const LENGTHCOUNTER_AND_SWEEP: u8 = 0b01;
@@ -40,6 +42,7 @@ const FRAME_COUNTER_RULES: &[&[u8]] = &[
 pub struct APUChannels {
     pub pulse_1: PulseChannel,
     pub pulse_2: PulseChannel,
+    pub triangle: TriangleChannel,
 }
 
 impl APUChannels {
@@ -47,6 +50,7 @@ impl APUChannels {
         return Self {
             pulse_1: PulseChannel::new(),
             pulse_2: PulseChannel::new(),
+            triangle: TriangleChannel::new(),
         };
     }
 }
@@ -78,10 +82,14 @@ impl<T: APUMixer> APU<T> {
 
         self.channels.pulse_2.tick_length_counter();
         self.channels.pulse_2.tick_sweep();
+
+        self.channels.triangle.tick_length_counter();
     }
     fn tick_envelope_and_linear_counter(&mut self) {
         self.channels.pulse_1.tick_envelope();
         self.channels.pulse_2.tick_envelope();
+
+        self.channels.triangle.tick_linear_counter();
     }
 
     /// Advances the frame counter by one step and applies that step's rule.
@@ -102,7 +110,7 @@ impl<T: APUMixer> APU<T> {
     }
 
     /// Advances the APU by one APU cycle, i.e. every second CPU cycle.
-    pub fn tick(&mut self) {
+    pub fn tick_half_clock(&mut self) {
         self.frame_divider += 1;
         if self.frame_divider >= FRAME_COUNTER_PERIOD {
             self.frame_divider = 0;
@@ -111,6 +119,11 @@ impl<T: APUMixer> APU<T> {
 
         self.channels.pulse_1.tick();
         self.channels.pulse_2.tick();
+    }
+
+    /// Ticks once per CPU clock
+    pub fn tick_full_clock(&mut self) {
+        self.channels.triangle.tick();
     }
 
     /// Handles a write to $4017. Resets the sequence, and in mode 1 clocks the
