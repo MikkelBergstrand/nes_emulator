@@ -1,5 +1,6 @@
 use super::texture;
 use super::vertex::{INDICES, VERTICES, Vertex};
+use crate::gamepad::Gamepad;
 use crate::inputs::{InputFlag, Inputs};
 use crate::nes::NES;
 use crate::sound::{APUSink, APUSource, SoundEngine};
@@ -45,6 +46,7 @@ pub struct State {
 
     nes: NES,
     inputs: Inputs,
+    gamepad: Gamepad,
     texture_data: Vec<u8>,
     t0: Instant,
 
@@ -253,6 +255,7 @@ impl State {
             t0: Instant::now(),
             sound_engine,
             apu_sink,
+            gamepad: Gamepad::new(),
         })
     }
 
@@ -299,9 +302,16 @@ impl State {
         let frame_start = self.nes.cycles();
         let mut clock = 0;
 
+        // The pad is sampled once per frame; polling it per CPU cycle would
+        // drain the event queue on the first tick and report nothing for the
+        // remaining ~30k ticks of the frame.
+        let gamepad = self.gamepad.poll();
+
         while !self.nes.image_ready() {
-            self.nes
-                .set_controller_state(self.inputs.get_input_byte().bits());
+            // Merge inputs from the keyboard and the gamepad
+            let inputs = self.inputs.get_input_byte() | gamepad;
+            self.nes.set_controller_state(inputs.bits());
+
             self.nes.tick();
 
             clock = (self.nes.cycles() - frame_start) as u32;
