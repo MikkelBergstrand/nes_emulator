@@ -1,6 +1,6 @@
 mod addressing;
-pub mod apu;
-pub mod cpu;
+mod apu;
+mod cpu;
 mod input_controller;
 mod instruction;
 mod mappers;

@@ -1,11 +1,9 @@
-use crate::nes::{F_CPU, apu::channel::PulseChannel};
-
 mod adressing;
-pub mod channel;
+mod channel;
 mod envelope;
 mod sweeper;
 
-pub const F_APU: f32 = F_CPU / 2.0;
+use channel::PulseChannel;
 
 #[rustfmt::skip]
 pub const LENGTH_COUNTER_TABLE: [u8; 0x20] = [
@@ -137,5 +135,3 @@ impl APU {
         return 95.88 / ((8128.0 / psum) + 100.0);
     }
 }
-
-pub struct APUStatus {}

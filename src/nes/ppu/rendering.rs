@@ -3,7 +3,6 @@ use crate::nes::mappers::Mapper;
 use super::{
     PPU,
     flags::{PPUCTRL, PPUMask, PPUStatus},
-    oam::TempSpriteInfo,
     sprite_buffer_memory::BufferSprite,
 };
 
