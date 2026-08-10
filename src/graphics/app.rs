@@ -13,7 +13,7 @@ use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::*,
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
@@ -22,6 +22,9 @@ const RESOLUTION: (usize, usize) = (256, 240);
 
 // An NTSC frame is 29780.5 CPU cycles; the PPU alternates 29780/29781.
 const CYCLES_PER_FRAME: u32 = 29781;
+// 29780.5 cycles at 1.789773MHz, i.e. 60.0988Hz. Used to space frames when the
+// display will not say how fast it refreshes.
+const NES_FRAME_PERIOD: Duration = Duration::from_nanos(16_639_680);
 // Only a genuinely stalled device should trip the gate's escape hatch. Ordinary
 // scheduling jitter must not, since every escape drops audio and lets the
 // emulator run free of its clock.
@@ -48,7 +51,10 @@ pub struct State {
     inputs: Inputs,
     gamepad: Gamepad,
     texture_data: Vec<u8>,
-    t0: Instant,
+    // When the next frame is due, and how far apart frames are spaced. See
+    // `pace`.
+    next_frame: Instant,
+    frame_period: Duration,
 
     sound_engine: SoundEngine,
     apu_sink: APUSink,
@@ -104,7 +110,16 @@ impl State {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            // `present_modes` is in driver order, not preference order, so
+            // taking [0] picked Immediate here -- every frame handed over the
+            // instant it was drawn, tearing straight across whatever the
+            // display was already scanning out. Fifo is the one mode the spec
+            // guarantees exists, and it is the one that waits for the scanout.
+            //
+            // It is not what paces the emulator, though; `pace` is. On this
+            // Mesa/X11 setup `get_current_texture` returns immediately even
+            // under Fifo, so nothing here can be relied on for timing.
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -236,6 +251,8 @@ impl State {
 
         sound_engine.add_source(apu_source);
 
+        let frame_period = Self::frame_period(&window);
+
         Ok(Self {
             surface,
             device,
@@ -252,7 +269,8 @@ impl State {
             texture_data,
             nes: NES::from_args(),
             inputs: Inputs::new(),
-            t0: Instant::now(),
+            next_frame: Instant::now(),
+            frame_period,
             sound_engine,
             apu_sink,
             gamepad: Gamepad::new(),
@@ -283,14 +301,87 @@ impl State {
         }
     }
 
+    /// How far apart to space frames.
+    ///
+    /// Matching the display beats matching the NES where the two are close. Run
+    /// at the NES's own 60.0988Hz against a display refreshing at 60.02 and one
+    /// frame in every eight hundred gets shown twice or skipped -- a hitch in a
+    /// scrolling background every dozen seconds or so. Following the display
+    /// costs a fraction of a percent of emulation speed, which `APUSink::retune`
+    /// then hides by resampling the audio to match.
+    fn frame_period(window: &Window) -> Duration {
+        const NES_HZ: f64 = 60.0988;
+        // Past this the resampler would have to stretch audio far enough to
+        // hear, and the game would visibly run fast or slow.
+        const TOLERANCE: f64 = 0.03;
+
+        let Some(hz) = window
+            .current_monitor()
+            .and_then(|monitor| monitor.refresh_rate_millihertz())
+            .filter(|mhz| *mhz > 0)
+            .map(|mhz| mhz as f64 / 1000.0)
+        else {
+            return NES_FRAME_PERIOD;
+        };
+
+        // What matters is that frames land on refresh boundaries, not that
+        // there is one per refresh: a 120Hz display just holds each NES frame
+        // for two. Rates with no such factor -- 144Hz divides to 72 -- are no
+        // use, and chasing them would run the game a fifth too fast.
+        let refreshes_per_frame = (hz / NES_HZ).round().max(1.0);
+        let paced = hz / refreshes_per_frame;
+
+        if (paced - NES_HZ).abs() / NES_HZ > TOLERANCE {
+            return NES_FRAME_PERIOD;
+        }
+        Duration::from_secs_f64(1.0 / paced)
+    }
+
+    /// Re-reads the refresh rate, for when the window has moved to a display
+    /// that may not refresh at the same rate as the last one.
+    fn retarget_display(&mut self) {
+        self.frame_period = Self::frame_period(&self.window);
+    }
+
+    /// Waits until the next frame is due.
+    ///
+    /// Smooth scrolling needs frames spaced *evenly*, which is a stricter
+    /// requirement than producing the right number of them per second, and the
+    /// two obvious clocks both fail it:
+    ///
+    /// - The sound card frees ring buffer space one period at a time, and a
+    ///   period is much longer than a frame. Waiting on it produced two or three
+    ///   frames a millisecond apart and then a ~40ms gap; the average was a
+    ///   correct 60fps but the motion moved in visible jumps.
+    /// - Vsync would be ideal, but `get_current_texture` returns immediately
+    ///   even under Fifo on this driver, so it cannot be leaned on for timing.
+    ///
+    /// That leaves the wall clock. Deadlines are absolute so the error in any
+    /// one sleep does not accumulate.
+    fn pace(&mut self) {
+        let now = Instant::now();
+
+        if let Some(remaining) = self.next_frame.checked_duration_since(now) {
+            sleep(remaining);
+        } else if now - self.next_frame > self.frame_period {
+            // More than a whole frame late: something stalled us badly, or this
+            // is the first frame. Catching up by running frames back to back
+            // would just replay the burst this exists to avoid, so give up the
+            // lost time and restart the schedule from here.
+            self.next_frame = now;
+        }
+
+        self.next_frame += self.frame_period;
+    }
+
     fn update(&mut self) {
-        // The sound card is the clock. Block until the ring buffer has drained
-        // enough to absorb another frame, which paces emulation at the real NES
-        // rate far more accurately than sleeping on wall time. Asking blip for
-        // clocks rather than comparing sample counts keeps the threshold exact.
-        //
-        // Every escape from this gate drops audio and lets the emulator run
-        // free, so the timeout must only trip on a genuinely dead device.
+        self.pace();
+
+        // Frames are paced above; this is only a backstop, for when the wall
+        // clock lets through more audio than the card is taking -- most likely
+        // a device that has stopped consuming entirely. Every escape from it
+        // drops audio and lets the emulator run free, so the timeout must only
+        // trip on a genuinely dead device, never on ordinary jitter.
         let deadline = Instant::now() + AUDIO_STALL_TIMEOUT;
         while self.apu_sink.clocks_free() < CYCLES_PER_FRAME && Instant::now() < deadline {
             sleep(Duration::from_micros(500));
@@ -320,13 +411,15 @@ impl State {
         }
 
         self.apu_sink.drain(clock);
-        self.texture_data = self.nes.get_image_bytes().to_vec();
-        self.t0 = Instant::now();
+        // Frames come at the display's rate, not the NES's, so the resampler has
+        // to be pulled back into line with what the card is consuming.
+        self.apu_sink.retune();
+
+        self.texture_data
+            .copy_from_slice(self.nes.get_image_bytes());
     }
 
     pub fn render(&mut self) -> anyhow::Result<()> {
-        self.window.request_redraw();
-
         // Update texture with new pixel data
         self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -434,6 +527,19 @@ impl ApplicationHandler<State> for App {
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         self.state = Some(pollster::block_on(State::new(window)).unwrap());
+
+        // Nothing but the emulator drives this window, so never sit waiting for
+        // an event that is not coming.
+        event_loop.set_control_flow(ControlFlow::Poll);
+    }
+
+    // Asking for the next frame here rather than inside `render` means an early
+    // return from it -- an unconfigured surface, a lost frame -- cannot break
+    // the chain and leave the window frozen.
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &self.state {
+            state.window.request_redraw();
+        }
     }
 
     #[allow(unused_mut)]
@@ -455,6 +561,7 @@ impl ApplicationHandler<State> for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => state.resize(size.width, size.height),
+            WindowEvent::Moved(_) => state.retarget_display(),
             WindowEvent::RedrawRequested => {
                 state.update();
                 match state.render() {

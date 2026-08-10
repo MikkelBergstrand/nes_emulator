@@ -8,10 +8,40 @@ use crate::nes::F_CPU;
 const SAMPLE_RATE: u32 = 48_000;
 const BLIP_CAPACITY: u32 = SAMPLE_RATE / 10;
 
+// The sound card drains the ring buffer one period at a time, and a period is
+// far coarser than a frame -- measured at ~40ms here against a 16.6ms frame.
+// The buffer has to absorb that sawtooth at both ends without either running
+// dry or backing up, so it is sized well above one period rather than close to
+// it. Every millisecond of it is also a millisecond of latency before a jump or
+// a coin is heard, so it should not grow beyond what the sawtooth needs.
+const RING_MS: usize = 120;
+const RING_CAPACITY: usize = SAMPLE_RATE as usize * RING_MS / 1000;
+
+// Where dynamic rate control aims to hold the buffer. Halfway leaves equal room
+// for the card to fall behind or run ahead before either end is reached.
+const TARGET_FILL: f32 = 0.5;
+
+// The widest resampling correction, as a fraction of the nominal rate. What it
+// has to absorb is the gap between the NES frame rate and the rate frames are
+// actually produced at, plus whatever the sound card's nominal 48kHz is really
+// running at. Both are fractions of a percent, but the correction has to
+// comfortably exceed them or the buffer walks to an end and stays pinned there.
+// A percent works out to about a sixth of a semitone, which is not audible on
+// square waves.
+const MAX_SKEW: f32 = 0.01;
+
+// Smoothing on the fill estimate, as a per-frame weight. The level sawtooths
+// across a third of the buffer on every audio period, and correcting against
+// that would just feed the card's burstiness back into the resampler. The drift
+// underneath it is a near-constant rate error, so the loop can afford to look
+// at several seconds of history. ~4s here.
+const FILL_SMOOTHING: f32 = 0.004;
+
 pub struct APUSink {
     producer: HeapProd<i16>,
     blip: blip_buf::BlipBuf,
     last: i32,
+    fill: f32,
 }
 
 impl APUSink {
@@ -37,17 +67,48 @@ impl APUSink {
         }
     }
 
+    /// Resamples slightly faster or slower so that what the emulator produces
+    /// keeps pace with what the sound card consumes. Call once per frame, after
+    /// `drain`.
+    ///
+    /// Frames are emitted on a wall-clock schedule that is close to the NES
+    /// frame rate but never exactly it, so a fixed resampling ratio drifts until
+    /// the buffer either runs dry or backs up and stalls emulation. Nudging the
+    /// ratio towards whatever holds the buffer at `TARGET_FILL` makes the audio
+    /// follow the frame schedule instead, which is what lets the schedule be
+    /// chosen for smooth video rather than for the sound card's convenience.
+    pub fn retune(&mut self) {
+        let filled = RING_CAPACITY - self.vacant_len().min(RING_CAPACITY);
+        let level = filled as f32 / RING_CAPACITY as f32;
+        self.fill += (level - self.fill) * FILL_SMOOTHING;
+
+        // Too full means we are outrunning the card, so ask blip for fewer
+        // samples per CPU clock; too empty and we ask for more.
+        let error = ((TARGET_FILL - self.fill) / TARGET_FILL).clamp(-1.0, 1.0);
+        let rate = SAMPLE_RATE as f32 * (1.0 + MAX_SKEW * error);
+        let _ = self.blip.set_rates(F_CPU as f64, rate as f64);
+    }
+
     pub fn vacant_len(&self) -> usize {
         self.producer.vacant_len()
     }
 
     /// How many CPU clocks of emulation the ring buffer's free space can
-    /// absorb. Accounts for blip's sub-sample phase, so gating on this has no
-    /// rounding slop against a real frame length.
+    /// absorb, saturating at `MAX_QUERY` samples' worth. Accounts for blip's
+    /// sub-sample phase, so gating on this has no rounding slop against a real
+    /// frame length.
     pub fn clocks_free(&self) -> u32 {
+        // blip measures time in 1/2^20 of a clock, so asking about 2^12 samples
+        // or more overflows the u32 that count is multiplied into, and the
+        // answer comes back wrapped: a nearly empty buffer reports as a nearly
+        // full one, and a caller gating on it waits forever. Callers only need
+        // to know whether one more frame fits, so stopping the question well
+        // short of the overflow costs nothing.
+        const MAX_QUERY: usize = 2048;
+
         let headroom = (BLIP_CAPACITY as usize).saturating_sub(self.blip.samples_avail() as usize);
         self.blip
-            .clocks_needed(self.vacant_len().min(headroom) as u32)
+            .clocks_needed(self.vacant_len().min(headroom).min(MAX_QUERY) as u32)
             .unwrap_or(0)
     }
 }
@@ -61,7 +122,7 @@ impl APUSource {
         let mut blip = blip_buf::BlipBuf::new(BLIP_CAPACITY);
         blip.set_rates(F_CPU as f64, SAMPLE_RATE as f64).unwrap();
 
-        let (producer, consumer) = HeapRb::new(SAMPLE_RATE as usize * 80 / 1000).split();
+        let (producer, consumer) = HeapRb::new(RING_CAPACITY).split();
 
         (
             APUSource {
@@ -71,6 +132,10 @@ impl APUSource {
                 producer,
                 last: 0,
                 blip,
+                // Starting the estimate at the target keeps the first seconds of
+                // playback from being retuned against a buffer that is only
+                // empty because nothing has been pushed into it yet.
+                fill: TARGET_FILL,
             },
         )
     }

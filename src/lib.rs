@@ -2,4 +2,4 @@ mod gamepad;
 pub mod graphics;
 mod inputs;
 pub mod nes;
-mod sound;
+pub mod sound;
