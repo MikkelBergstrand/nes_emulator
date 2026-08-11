@@ -8,13 +8,20 @@ use crate::nes::F_CPU;
 const SAMPLE_RATE: u32 = 48_000;
 const BLIP_CAPACITY: u32 = SAMPLE_RATE / 10;
 
-// The sound card drains the ring buffer one period at a time, and a period is
-// far coarser than a frame -- measured at ~40ms here against a 16.6ms frame.
-// The buffer has to absorb that sawtooth at both ends without either running
-// dry or backing up, so it is sized well above one period rather than close to
-// it. Every millisecond of it is also a millisecond of latency before a jump or
-// a coin is heard, so it should not grow beyond what the sawtooth needs.
-const RING_MS: usize = 120;
+// How many frames the sound card takes at a time. rodio's own choice aims at
+// 50ms, which measured here as the ring buffer emptying in swings of nearly
+// 100ms and running dry roughly every other second. 512 frames is about 12ms on
+// a 44.1kHz device; 256 measured no better and asks the card to wake twice as
+// often. See `SoundEngine::open_sink`.
+const DEVICE_PERIOD: u32 = 512;
+
+// The sound card empties the ring buffer a whole period at a time, so the ring
+// has to stay deeper than a period or it runs dry in between and the gaps are
+// heard as clicks. Sized to cover several periods, since a device that misses
+// its own deadline takes two at once. Every millisecond of it is also a
+// millisecond of delay before a jump or a coin is heard, so it should not grow
+// past what the periods need.
+const RING_MS: usize = 100;
 const RING_CAPACITY: usize = SAMPLE_RATE as usize * RING_MS / 1000;
 
 // Where dynamic rate control aims to hold the buffer. Halfway leaves equal room
@@ -115,6 +122,7 @@ impl APUSink {
 
 pub struct APUSource {
     sample_buffer: HeapCons<i16>,
+    last: i16,
 }
 
 impl APUSource {
@@ -127,6 +135,7 @@ impl APUSource {
         (
             APUSource {
                 sample_buffer: consumer,
+                last: 0,
             },
             APUSink {
                 producer,
@@ -146,7 +155,13 @@ impl Iterator for APUSource {
 
     fn next(&mut self) -> Option<Self::Item> {
         const SCALE: f32 = 1.0 / -(i16::MIN as f32);
-        Some(self.sample_buffer.try_pop().unwrap_or(0) as f32 * SCALE)
+
+        // Holding the last sample through a gap rather than dropping to zero.
+        // The buffer should never run dry -- if it does the emulator is not
+        // keeping up and that is the thing to fix -- but a short gap held flat
+        // is far less audible than the step a jump to zero puts in the signal.
+        self.last = self.sample_buffer.try_pop().unwrap_or(self.last);
+        Some(self.last as f32 * SCALE)
     }
 }
 
@@ -177,14 +192,35 @@ pub struct SoundEngine {
 
 impl SoundEngine {
     pub fn new() -> Self {
-        let sink =
-            rodio::DeviceSinkBuilder::open_default_sink().expect("open default audio stream");
+        let sink = Self::open_sink();
         let player = rodio::Player::connect_new(&sink.mixer());
 
         Self {
             _sink: sink,
             player,
         }
+    }
+
+    /// Opens the default output device, asking for a shorter period than rodio
+    /// would pick on its own.
+    ///
+    /// The device empties the ring buffer a whole period at a time, so the ring
+    /// has to stay at least a period deep or it runs dry in between and the
+    /// gaps are heard as clicks. That makes the period the floor on audio
+    /// latency, twice over: once in the device's own buffer and once in the
+    /// ring that has to cover it. rodio aims for 50ms, which was arriving as
+    /// swings of nearly 100ms here.
+    fn open_sink() -> rodio::MixerDeviceSink {
+        rodio::DeviceSinkBuilder::from_default_device()
+            .and_then(|builder| {
+                builder
+                    .with_buffer_size(rodio::cpal::BufferSize::Fixed(DEVICE_PERIOD))
+                    .open_stream()
+            })
+            // Not every device will accept a period we chose, and default
+            // timing beats no sound at all.
+            .or_else(|_| rodio::DeviceSinkBuilder::open_default_sink())
+            .expect("open default audio stream")
     }
 
     pub fn add_source<T>(&mut self, source: T)
