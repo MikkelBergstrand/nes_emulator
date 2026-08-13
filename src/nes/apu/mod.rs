@@ -1,8 +1,10 @@
 mod adressing;
 mod channel;
+mod divider;
 mod envelope;
 mod length_counter;
 pub mod mixer;
+mod noise_channel;
 mod pulse_channel;
 mod sweeper;
 mod triangle_channel;

@@ -1,4 +1,7 @@
-use crate::nes::apu::channel::{timer_high, timer_low};
+use crate::nes::apu::{
+    channel::{timer_high, timer_low},
+    divider::Divider,
+};
 
 use super::length_counter::LengthCounter;
 
@@ -7,10 +10,9 @@ const SEQUENCE: &[u8] = &[
     13, 14, 15,
 ];
 pub struct TriangleChannel {
-    pub length_counter: LengthCounter,
+    length_counter: LengthCounter,
+    divider: Divider,
 
-    period: u16,
-    t: u16,
     sequence_idx: u8,
 
     linear_counter: u8,
@@ -24,11 +26,10 @@ pub struct TriangleChannel {
 impl TriangleChannel {
     pub fn new() -> Self {
         Self {
-            t: 0,
             sequence_idx: 0,
             linear_counter: 0,
             length_counter: LengthCounter::new(),
-            period: 0,
+            divider: Divider::new(0),
             enabled: false,
             linear_counter_reload: false,
             linear_counter_reload_value: 0,
@@ -45,10 +46,12 @@ impl TriangleChannel {
             }
             1 => (),
             2 => {
-                self.period = timer_low!(self.period, data);
+                self.divider
+                    .set_period(timer_low!(self.divider.get_period(), data));
             }
             3 => {
-                self.period = timer_high!(self.period, data);
+                self.divider
+                    .set_period(timer_high!(self.divider.get_period(), data));
                 self.length_counter.set_counter((data & 0xF8) >> 3);
                 self.linear_counter_reload = true;
             }
@@ -82,13 +85,10 @@ impl TriangleChannel {
     }
 
     pub fn tick(&mut self) {
-        if self.t == 0 {
+        if self.divider.tick() {
             if self.linear_counter > 0 && self.length_counter.active() {
                 self.sequence_idx = (self.sequence_idx + 1) % SEQUENCE.len() as u8;
             }
-            self.t = self.period;
-        } else {
-            self.t -= 1;
         }
     }
 

@@ -1,5 +1,6 @@
 use crate::nes::apu::{
     channel::{timer_high, timer_low},
+    divider::Divider,
     envelope::Envelope,
     length_counter::LengthCounter,
     sweeper::Sweeper,
@@ -19,12 +20,11 @@ const PULSE_SEQUENCER: &[&[u8]] = &[
 pub struct PulseChannel {
     duty: u8,
 
-    t: u16,
     enabled: bool,
 
     sequencer_step: u8,
-    period: u16,
 
+    divider: Divider,
     envelope: Envelope,
     sweeper: Sweeper,
     length_counter: LengthCounter,
@@ -33,11 +33,10 @@ pub struct PulseChannel {
 impl PulseChannel {
     pub fn new() -> Self {
         PulseChannel {
-            period: 0,
             enabled: false,
             duty: 0,
-            t: 0,
             sequencer_step: 0,
+            divider: Divider::new(0),
             envelope: Envelope::new(),
             sweeper: Sweeper::new(),
             length_counter: LengthCounter::new(),
@@ -59,13 +58,16 @@ impl PulseChannel {
                 self.sweeper.shift = data & 0x07;
                 self.sweeper.reset();
             }
-            2 => self.period = timer_low!(self.period, data),
+            2 => self
+                .divider
+                .set_period(timer_low!(self.divider.get_period(), data)),
             3 => {
-                self.period = timer_high!(self.period, data);
+                self.divider
+                    .set_period(timer_high!(self.divider.get_period(), data));
                 self.length_counter.set_counter((data & 0xF8) >> 3);
                 self.envelope.set_start();
 
-                // Side effects of write
+                // Side effect of write
                 self.sequencer_step = 0;
             }
             _ => panic!("PulseChannel invalid address"),
@@ -74,11 +76,8 @@ impl PulseChannel {
 
     pub fn tick(&mut self) {
         // Clock the sequencer on the transition from 0 to period
-        if self.t == 0 {
+        if self.divider.tick() {
             self.sequencer_step = (self.sequencer_step + 1) % 8;
-            self.t = self.period;
-        } else {
-            self.t -= 1;
         }
     }
 
@@ -87,7 +86,8 @@ impl PulseChannel {
     }
 
     pub fn tick_sweep(&mut self) {
-        self.period = self.sweeper.tick(self.period);
+        self.divider
+            .set_period(self.sweeper.tick(self.divider.get_period()));
     }
 
     pub fn tick_length_counter(&mut self) {
@@ -100,7 +100,7 @@ impl PulseChannel {
     }
 
     fn enabled(&self) -> bool {
-        self.length_counter.active() && !self.sweeper.mute(self.period)
+        self.length_counter.active() && !self.sweeper.mute(self.divider.get_period())
     }
 
     pub fn get_output(&self) -> u16 {
