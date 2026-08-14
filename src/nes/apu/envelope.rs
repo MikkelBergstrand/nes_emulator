@@ -19,11 +19,16 @@ impl Envelope {
         }
     }
 
-    // These parameters are set via writing to specific APU addresses
-    pub fn set_params(&mut self, constant_volume: bool, volume: u8, loop_flag: bool) {
+    pub fn set_volume(&mut self, volume: u8) {
         self.volume = volume;
-        self.constant_volume = constant_volume;
-        self.loop_flag = loop_flag;
+    }
+
+    pub fn set_constant_volume_flag(&mut self, value: bool) {
+        self.constant_volume = value;
+    }
+
+    pub fn set_loop_flag(&mut self, value: bool) {
+        self.loop_flag = value;
     }
 
     pub fn tick(&mut self) {

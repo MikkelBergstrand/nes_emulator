@@ -47,8 +47,9 @@ impl PulseChannel {
         match reg {
             0 => {
                 self.duty = (data & 0xC0) >> 6;
-                self.envelope
-                    .set_params((data & 0x10) != 0, data & 0xF, data & 0x20 != 0);
+                self.envelope.set_volume(data & 0xF);
+                self.envelope.set_constant_volume_flag(data & 0x10 != 0);
+                self.envelope.set_loop_flag(data & 0x20 != 0);
                 self.length_counter.set_halt(data & 0x20 != 0);
             }
             1 => {

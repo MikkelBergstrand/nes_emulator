@@ -30,7 +30,7 @@ impl APUMixer for APULookupTableMixer {
 
     fn mix(&self, channels: &APUChannels) -> f32 {
         let pulse_sum = channels.pulse_1.get_output() + channels.pulse_2.get_output();
-        let tnd_sum = 3 * channels.triangle.get_output();
+        let tnd_sum = 3 * channels.triangle.get_output() + 2 * channels.noise.get_output();
         self.pulse_lookup[pulse_sum as usize] + self.tnd_lookup[tnd_sum as usize]
     }
 }

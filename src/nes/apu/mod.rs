@@ -8,10 +8,11 @@ mod noise_channel;
 mod pulse_channel;
 mod sweeper;
 mod triangle_channel;
-
 use pulse_channel::PulseChannel;
 
-use crate::nes::apu::{mixer::APUMixer, triangle_channel::TriangleChannel};
+use crate::nes::apu::{
+    mixer::APUMixer, noise_channel::NoiseChannel, triangle_channel::TriangleChannel,
+};
 
 const ENVELOPE_AND_LINEARCOUNTER: u8 = 0b10;
 const LENGTHCOUNTER_AND_SWEEP: u8 = 0b01;
@@ -45,6 +46,7 @@ pub struct APUChannels {
     pub pulse_1: PulseChannel,
     pub pulse_2: PulseChannel,
     pub triangle: TriangleChannel,
+    pub noise: NoiseChannel,
 }
 
 impl APUChannels {
@@ -53,6 +55,7 @@ impl APUChannels {
             pulse_1: PulseChannel::new(),
             pulse_2: PulseChannel::new(),
             triangle: TriangleChannel::new(),
+            noise: NoiseChannel::new(),
         };
     }
 }
@@ -86,12 +89,16 @@ impl<T: APUMixer> APU<T> {
         self.channels.pulse_2.tick_sweep();
 
         self.channels.triangle.tick_length_counter();
+
+        self.channels.noise.tick_length_counter();
     }
     fn tick_envelope_and_linear_counter(&mut self) {
         self.channels.pulse_1.tick_envelope();
         self.channels.pulse_2.tick_envelope();
 
         self.channels.triangle.tick_linear_counter();
+
+        self.channels.noise.tick_envelope();
     }
 
     /// Advances the frame counter by one step and applies that step's rule.
@@ -121,6 +128,7 @@ impl<T: APUMixer> APU<T> {
 
         self.channels.pulse_1.tick();
         self.channels.pulse_2.tick();
+        self.channels.noise.tick();
     }
 
     /// Ticks once per CPU clock
@@ -141,6 +149,7 @@ impl<T: APUMixer> APU<T> {
         }
     }
 
+    /// Get the combined APU output. The mixer will mix the five sound channels.
     pub fn get_output(&self) -> f32 {
         self.mixer.mix(&self.channels)
     }
